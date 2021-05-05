@@ -1,26 +1,101 @@
-use std::io;
 use std::fs::File;
+use std::io::{self, prelude::*};
 
-mod error;
+use eframe::egui;
 
 use error::*;
 
-fn main() -> ReadResult<()> {
-    let mut gob_file = File::open(r"C:\Games\Steam\steamapps\common\Dark Forces\Game\DARK.GOB")?;
+mod error;
 
-    for entry in gob::Catalog::read(&mut gob_file)? {
-        let offset = entry.offset();
-        let length = entry.length();
-        let name = entry.name();
-        println!("{:8x}:{:8x}: {:?}", offset, length, name);
-        if name.as_deref() == Ok("TEXT.MSG") {
-            use io::Read as _;
-            let mut data = String::new();
-            let len = entry.data(&mut gob_file).read_to_string(&mut data)?;
-            println!("- ({} bytes) {}", len, data);
-        }
+fn main() -> ReadResult<()> {
+    eframe::run_native(Box::new(App::new()?))
+}
+
+struct App {
+    file: File,
+    catalog: gob::Catalog,
+    selected: Option<Selected>,
+}
+
+struct Selected {
+    index: usize,
+    name: String,
+    length: u32,
+    data: String,
+}
+
+impl App {
+    fn new() -> ReadResult<Self> {
+        let mut file = File::open(r"C:\Games\Steam\steamapps\common\Dark Forces\Game\DARK.GOB")?;
+        let catalog = gob::Catalog::read(&mut file)?;
+        Ok(Self { file, catalog, selected: None })
     }
-    Ok(())
+
+    fn escape_text_data(data: Vec<u8>) -> String {
+        data
+            .into_iter()
+            .flat_map(|c| {
+                let escape = match c {
+                    b'\r' | b'\n' | b' ' => false,
+                    b'\\' => true,
+                    c => !c.is_ascii_graphic(),
+                };
+                let (a,b) = if !escape {
+                    (Some(std::iter::once(char::from(c))), None)
+                } else {
+                    (None, Some(char::from(c).escape_default()))
+                };
+                a.into_iter().flatten().chain(b.into_iter().flatten())
+            })
+            .collect()
+    }
+}
+
+impl eframe::epi::App for App {
+    fn name(&self) -> &str {
+        "Dark Forces Explorer"
+    }
+
+    fn update(&mut self, ctx: &egui::CtxRef, _frame: &mut eframe::epi::Frame) {
+        egui::SidePanel::left(1, 200.0).show(ctx, |ui| {
+            ui.heading("Entries");
+            egui::ScrollArea::auto_sized().show(ui, |ui| {
+                let selected_index = self.selected.as_ref().map(|s| s.index);
+
+                for (index, entry) in self.catalog.entries().enumerate() {
+                    let selected = Some(index) == selected_index;
+
+                    if ui.selectable_label(selected, entry.name()).clicked() {
+                        let mut data = Vec::new();
+                        entry.data(&mut self.file)
+                            .read_to_end(&mut data)
+                            .expect("can read file");
+                        let data = Self::escape_text_data(data);
+                        self.selected = Some(Selected {
+                            index,
+                            name: entry.name().to_string(),
+                            length: entry.length(),
+                            data,
+                        });
+                    }
+                }
+            });
+        });
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            match &self.selected {
+                None => {
+                    ui.heading("No selected item");
+                }
+                Some(selected) => {
+                    ui.heading(format!("Selected: {:?} ({} bytes)", selected.name, selected.length));
+                    egui::ScrollArea::auto_sized().show(ui, |ui| {
+                        ui.label(&selected.data);
+                    });
+                }
+            }
+        });
+    }
 }
 
 mod gob;

@@ -22,8 +22,13 @@ impl Catalog {
             let offset = read_u32(&mut file)?;
             let length = read_u32(&mut file)?;
             let raw_name = read_buf(&mut file, [0u8; 13])?;
+            let mut name = String::from_utf8(raw_name.to_vec())
+                .expect("name to be ascii");
+            if let Some(index) = name.find('\0') {
+                name.truncate(index);
+            }
 
-            entries.push(Entry { offset, length, raw_name });
+            entries.push(Entry { offset, length, name });
         }
 
         Ok(Self { entries })
@@ -60,7 +65,7 @@ impl Iterator for CatalogIter {
 pub struct Entry {
     offset: u32,
     length: u32,
-    raw_name: [u8; 13],
+    name: String,
 }
 
 impl Entry {
@@ -72,9 +77,8 @@ impl Entry {
         self.length
     }
 
-    pub fn name(&self) -> Result<String, std::string::FromUtf8Error> {
-        String::from_utf8(self.raw_name.to_vec())
-            .map(|mut s| match s.find('\0') { None => s, Some(i) => { s.truncate(i); s } })
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     pub fn data<'file>(&self, gob_file: &'file mut File) -> impl io::Read + 'file {
