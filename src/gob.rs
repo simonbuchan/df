@@ -1,6 +1,7 @@
 use std::io;
 
 use crate::*;
+use std::ops::Index;
 
 pub struct Catalog {
     entries: Vec<Entry>,
@@ -36,6 +37,14 @@ impl Catalog {
 
     pub fn entries(&self) -> impl Iterator<Item = &Entry> + '_ {
         self.entries.iter()
+    }
+}
+
+impl Index<usize> for Catalog {
+    type Output = Entry;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.entries[index]
     }
 }
 

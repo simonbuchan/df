@@ -30,8 +30,6 @@ impl Fme {
         let data_offset = read_i32(&mut file)?;
         read_u32(&mut file)?; // padding
 
-        let pos = file.stream_position()?;
-
         file.seek(io::SeekFrom::Current(data_offset as i64))?;
 
         let mut columns = Vec::with_capacity(data_size as usize);
