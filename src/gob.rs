@@ -1,7 +1,8 @@
 use std::io;
-
-use crate::*;
 use std::ops::Index;
+
+use crate::common::*;
+use std::fs::File;
 
 pub struct Catalog {
     entries: Vec<Entry>,

@@ -1,45 +1,64 @@
 use std::io;
 
-use super::*;
+use crate::common::*;
 
 pub struct Fme {
-    pub offset: (i32, i32),
-    pub flip: bool,
-    pub unit_size: (u32, u32),
-    pub size: (u32, u32),
-    pub data: Vec<u8>,
+    pub frame: Frame,
+    pub cell: Cell,
 }
 
 impl Fme {
     pub fn read(mut file: impl io::Read + io::Seek) -> io::Result<Self> {
-        let x_offset = read_i32(&mut file)?;
-        let y_offset = read_i32(&mut file)?;
+        let frame = Frame::read(&mut file)?;
+        let cell_offset = read_u32(&mut file)?;
+        let cell = Cell::read(&mut file, cell_offset)?;
+        Ok(Self { frame, cell })
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct Frame {
+    pub offset: Vec2i32,
+    pub flip: bool,
+}
+
+impl Frame {
+    pub fn read(mut file: impl io::Read + io::Seek) -> io::Result<Self> {
+        let offset = read_vec2_i32(&mut file)?;
         let flip = read_u32(&mut file)? != 0;
-        let data_properties_offset = read_u32(&mut file)?;
-        let unit_width = read_u32(&mut file)?;
-        let unit_height = read_u32(&mut file)?;
-        // read_u32(&mut file)?; // padding
-        // read_u32(&mut file)?; // padding
+        Ok(Self { offset, flip })
+    }
+}
 
-        file.seek(io::SeekFrom::Start(data_properties_offset as u64))?;
+pub struct Cell {
+    pub size: Vec2u32,
+    pub data: Vec<u8>,
+}
 
-        let width = read_u32(&mut file)?;
-        let height = read_u32(&mut file)?;
+impl Cell {
+    pub fn read(mut file: impl io::Read + io::Seek, offset: u32) -> io::Result<Self> {
+        file.seek(io::SeekFrom::Start(offset as u64))?;
+
+        let size = read_vec2_u32(&mut file)?;
         let compressed = read_u32(&mut file)? != 0;
-        let data_size = read_u32(&mut file)?;
+        /*let data_size = */
+        read_u32(&mut file)?;
         let data_offset = read_i32(&mut file)?;
         read_u32(&mut file)?; // padding
 
-        file.seek(io::SeekFrom::Current(data_offset as i64))?;
+        assert_eq!(data_offset, 0);
+        // file.seek(io::SeekFrom::Current(data_offset as i64))?;
 
-        let mut columns = Vec::with_capacity(data_size as usize);
+        let unpacked_data_size = size.x as usize * size.y as usize;
+        let mut columns = Vec::with_capacity(unpacked_data_size);
         if !compressed {
-            file.read_to_end(&mut columns)?;
+            columns.resize(unpacked_data_size, 0u8);
+            file.read_exact(&mut columns)?;
         } else {
             let mut column_offsets = Vec::new();
 
-            for _ in 0..width {
-                column_offsets.push(data_properties_offset + read_u32(&mut file)?);
+            for _ in 0..size.x {
+                column_offsets.push(offset + read_u32(&mut file)?);
             }
 
             // rle0::decompress(file, height, column_offsets)
@@ -47,13 +66,12 @@ impl Fme {
             for offset in column_offsets {
                 file.seek(io::SeekFrom::Start(offset as u64))?;
                 let mut unpacked_bytes = 0;
-                while unpacked_bytes < height {
+                while unpacked_bytes < size.y {
                     let mut control_byte = 0u8;
                     file.read_exact(std::slice::from_mut(&mut control_byte))?;
                     if control_byte <= 128 {
-                        columns.extend_from_slice(
-                            read_buf(&mut file, &mut buffer[0..control_byte as usize])?,
-                        );
+                        let column = read_buf(&mut file, &mut buffer[0..control_byte as usize])?;
+                        columns.extend_from_slice(column);
                     } else {
                         control_byte -= 128;
                         for _ in 0..control_byte {
@@ -63,24 +81,18 @@ impl Fme {
                     unpacked_bytes += control_byte as u32;
                 }
             }
-        }
 
-        assert_eq!(columns.len(), (width * height) as usize);
+            assert_eq!(columns.len(), (size.x * size.y) as usize);
+        }
 
         // data is in columns, bottom to top, not rows. Transpose it.
         let mut data = Vec::with_capacity(columns.len());
-        for y in 0..height as usize {
-            for x in 0..width as usize {
-                data.push(columns[x * height as usize + height as usize - y - 1]);
+        for y in 0..size.y as usize {
+            for x in 0..size.x as usize {
+                data.push(columns[x * size.y as usize + size.y as usize - y - 1]);
             }
         }
 
-        Ok(Self {
-            offset: (x_offset, y_offset),
-            flip,
-            unit_size: (unit_width, unit_height),
-            size: (width, height),
-            data,
-        })
+        Ok(Self { size, data })
     }
 }
