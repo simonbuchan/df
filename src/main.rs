@@ -1,16 +1,18 @@
-use std::fs::File;
+use std::convert::TryFrom;
+use std::fs::{read_dir, File};
 use std::io::{self, prelude::*};
 use std::path::Path;
 
 use eframe::egui;
 
+use crate::common::{Catalog, CatalogEntry};
 use crate::error::ReadResult;
-use std::convert::TryFrom;
 
 mod common;
 mod error;
 mod fme;
 mod gob;
+mod lfd;
 mod wax;
 
 fn main() -> ReadResult<()> {
@@ -18,40 +20,60 @@ fn main() -> ReadResult<()> {
 }
 
 struct App {
-    gobs: Vec<GobFile>,
+    data_files: Vec<DataFile>,
     search: String,
     index: (usize, usize),
     selected: Option<Selected>,
 }
 
-struct GobFile {
-    name: &'static str,
+struct DataFile {
+    name: String,
     file: File,
-    catalog: gob::Catalog,
+    catalog: Catalog,
 }
 
 const BASE_PATH: &str = r"C:\Games\Steam\steamapps\common\Dark Forces\Game\";
 
 impl App {
     fn new() -> ReadResult<Self> {
-        let gobs = ["DARK.GOB", "SOUNDS.GOB", "SPRITES.GOB", "TEXTURES.GOB"]
-            .iter()
-            .map(|name| -> ReadResult<_> {
-                let mut file = File::open(Path::new(BASE_PATH).join(name))?;
-                let catalog = gob::Catalog::read(&mut file)?;
-                Ok(GobFile {
-                    name,
-                    file,
-                    catalog,
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
-            gobs,
+            data_files: Self::files(BASE_PATH)?,
             search: String::new(),
             index: (0, 0),
             selected: None,
         })
+    }
+
+    fn files(base_path: impl AsRef<Path>) -> ReadResult<Vec<DataFile>> {
+        let base_path = base_path.as_ref();
+        let mut result = Vec::new();
+        for entry in read_dir(base_path)? {
+            let path = entry?.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("GOB") {
+                let name = path.file_name().unwrap().to_string_lossy().to_string();
+                let mut file = File::open(path)?;
+                let catalog = gob::read(&mut file)?;
+                result.push(DataFile {
+                    name,
+                    file,
+                    catalog,
+                });
+            }
+        }
+        for entry in read_dir(base_path.join("LFD"))? {
+            let path = entry?.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("LFD") {
+                let name = path.file_name().unwrap().to_string_lossy().to_string();
+                let mut file = File::open(path)?;
+                let catalog = lfd::read(&mut file)?;
+                result.push(DataFile {
+                    name,
+                    file,
+                    catalog,
+                });
+            }
+        }
+        Ok(result)
     }
 
     fn escape_text_data(data: &[u8]) -> String {
@@ -110,16 +132,17 @@ impl eframe::epi::App for App {
             egui::ScrollArea::auto_sized().show(ui, |ui| {
                 let current_index = self.index;
                 let mut new_index = None;
-                for (gob_index, gob) in self.gobs.iter_mut().enumerate() {
-                    ui.collapsing(gob.name, |ui| {
+                for (data_file_index, data_file) in self.data_files.iter_mut().enumerate() {
+                    ui.collapsing(&data_file.name, |ui| {
                         ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-                            for (entry_index, entry) in gob.catalog.entries().enumerate() {
-                                let index = (gob_index, entry_index);
-                                if !search.is_empty() && !entry.name().contains(&search) {
+                            for (entry_index, entry) in data_file.catalog.entries.iter().enumerate()
+                            {
+                                let index = (data_file_index, entry_index);
+                                if !search.is_empty() && !entry.name.contains(&search) {
                                     continue;
                                 }
                                 if ui
-                                    .selectable_label(current_index == index, entry.name())
+                                    .selectable_label(current_index == index, &entry.name)
                                     .clicked()
                                 {
                                     new_index = Some(index);
@@ -130,12 +153,16 @@ impl eframe::epi::App for App {
                 }
 
                 if let Some((gob_index, entry_index)) = new_index {
-                    let gob = &mut self.gobs[gob_index];
-                    let entry = &gob.catalog[entry_index];
+                    let data_file = &mut self.data_files[gob_index];
+                    let entry = &data_file.catalog.entries[entry_index];
+
+                    data_file
+                        .file
+                        .seek(io::SeekFrom::Start(entry.offset as u64))
+                        .unwrap();
 
                     let mut data = Vec::new();
-                    entry
-                        .data(&mut gob.file)
+                    io::Read::take(&mut data_file.file, entry.length as u64)
                         .read_to_end(&mut data)
                         .expect("can read file");
 
@@ -148,8 +175,9 @@ impl eframe::epi::App for App {
 
                     self.index = (gob_index, entry_index);
                     self.selected = Some(Selected {
-                        name: entry.name().to_string(),
-                        length: entry.length(),
+                        name: entry.name.to_string(),
+                        offset: entry.offset,
+                        length: entry.length,
                         text_data,
                         decoded,
                     });
@@ -163,8 +191,8 @@ impl eframe::epi::App for App {
             }
             Some(selected) => {
                 ui.heading(format!(
-                    "Selected: {:?} ({} bytes)",
-                    selected.name, selected.length
+                    "Selected: {:?} {:x} ({} bytes)",
+                    selected.name, selected.offset, selected.length,
                 ));
             }
         });
@@ -177,6 +205,7 @@ impl eframe::epi::App for App {
 
 struct Selected {
     name: String,
+    offset: u32,
     length: u32,
     text_data: String,
     decoded: Decoded,
@@ -274,8 +303,8 @@ impl Decoded {
         }
     }
 
-    fn read(fw: &mut eframe::epi::Frame, entry: &gob::Entry, data: &[u8]) -> Self {
-        match entry.name().split('.').last() {
+    fn read(fw: &mut eframe::epi::Frame, entry: &CatalogEntry, data: &[u8]) -> Self {
+        match entry.name.split('.').last() {
             Some("FME") => {
                 let fme = match fme::Fme::read(&mut io::Cursor::new(data)) {
                     Err(error) => {

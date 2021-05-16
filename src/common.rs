@@ -57,3 +57,13 @@ pub fn read_buf<T: AsMut<[u8]>>(mut input: impl io::Read, mut buffer: T) -> io::
     input.read_exact(buffer.as_mut())?;
     Ok(buffer)
 }
+
+pub struct Catalog {
+    pub entries: Vec<CatalogEntry>,
+}
+
+pub struct CatalogEntry {
+    pub name: String,
+    pub offset: u32,
+    pub length: u32,
+}
