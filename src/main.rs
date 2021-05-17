@@ -13,6 +13,7 @@ mod error;
 mod fme;
 mod gob;
 mod lfd;
+mod pal;
 mod wax;
 
 fn main() -> ReadResult<()> {
@@ -22,7 +23,8 @@ fn main() -> ReadResult<()> {
 struct App {
     data_files: Vec<DataFile>,
     search: String,
-    index: (usize, usize),
+    index: Option<(usize, usize)>,
+    gob_palette: GobPalette,
     selected: Option<Selected>,
 }
 
@@ -32,14 +34,76 @@ struct DataFile {
     catalog: Catalog,
 }
 
+impl DataFile {
+    pub fn read(&self, entry: &CatalogEntry) -> Vec<u8> {
+        let mut data = vec![0u8; entry.length as usize];
+        // some crap so we can read without a &mut self, which causes lifetime conflict.
+        #[cfg(windows)]
+        let bytes_read =
+            std::os::windows::fs::FileExt::seek_read(&self.file, &mut data, entry.offset as u64)
+                .expect("can read file");
+        #[cfg(unix)]
+        let bytes_read =
+            std::os::unix::fs::FileExt::read_at(&self.file, &mut data, entry.offset as u64);
+        assert_eq!(bytes_read, entry.length as usize);
+        data
+    }
+}
+
+struct GobPalette {
+    items: Vec<(String, pal::Pal)>,
+    selected: usize,
+}
+
+impl GobPalette {}
+
+impl GobPalette {
+    fn setup(data_files: &mut [DataFile]) -> Self {
+        let mut items = Vec::new();
+
+        let mut selected = 0;
+
+        for file in data_files {
+            for entry in &file.catalog.entries {
+                if entry.name.ends_with(".PAL") {
+                    if entry.name == "SECBASE.PAL" {
+                        selected = items.len();
+                    }
+                    let pal = pal::Pal::read(io::Cursor::new(file.read(entry))).unwrap();
+                    items.push((entry.name.clone(), pal));
+                }
+            }
+        }
+
+        Self { items, selected }
+    }
+
+    fn show(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut changed = false;
+        ui.vertical(|ui| {
+            ui.heading("Palette");
+            for (index, (name, _)) in self.items.iter().enumerate() {
+                let response = ui.selectable_value(&mut self.selected, index, name);
+                if response.changed() {
+                    changed = true;
+                }
+            }
+        });
+        changed
+    }
+}
+
 const BASE_PATH: &str = r"C:\Games\Steam\steamapps\common\Dark Forces\Game\";
 
 impl App {
     fn new() -> ReadResult<Self> {
+        let mut data_files = Self::files(BASE_PATH)?;
+        let gob_palette = GobPalette::setup(&mut data_files);
         Ok(Self {
-            data_files: Self::files(BASE_PATH)?,
+            data_files,
             search: String::new(),
-            index: (0, 0),
+            index: None,
+            gob_palette,
             selected: None,
         })
     }
@@ -131,13 +195,21 @@ impl eframe::epi::App for App {
 
             egui::ScrollArea::auto_sized().show(ui, |ui| {
                 let current_index = self.index;
+
                 let mut new_index = None;
+
+                if let Some(selected) = &self.selected {
+                    if selected.reload {
+                        new_index = self.index;
+                    }
+                }
+
                 for (data_file_index, data_file) in self.data_files.iter_mut().enumerate() {
                     ui.collapsing(&data_file.name, |ui| {
                         ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
                             for (entry_index, entry) in data_file.catalog.entries.iter().enumerate()
                             {
-                                let index = (data_file_index, entry_index);
+                                let index = Some((data_file_index, entry_index));
                                 if !search.is_empty() && !entry.name.contains(&search) {
                                     continue;
                                 }
@@ -145,7 +217,7 @@ impl eframe::epi::App for App {
                                     .selectable_label(current_index == index, &entry.name)
                                     .clicked()
                                 {
-                                    new_index = Some(index);
+                                    new_index = index;
                                 }
                             }
                         });
@@ -156,30 +228,25 @@ impl eframe::epi::App for App {
                     let data_file = &mut self.data_files[gob_index];
                     let entry = &data_file.catalog.entries[entry_index];
 
-                    data_file
-                        .file
-                        .seek(io::SeekFrom::Start(entry.offset as u64))
-                        .unwrap();
+                    let data = data_file.read(entry);
 
-                    let mut data = Vec::new();
-                    io::Read::take(&mut data_file.file, entry.length as u64)
-                        .read_to_end(&mut data)
-                        .expect("can read file");
+                    let pal = &self.gob_palette.items[self.gob_palette.selected].1;
 
-                    let decoded = Decoded::read(frame, entry, &data);
+                    let decoded = Decoded::read(frame, entry, &data, pal);
                     let text_data = Self::escape_text_data(&data);
 
                     if let Some(Selected { decoded, .. }) = &self.selected {
                         decoded.free(frame);
                     }
 
-                    self.index = (gob_index, entry_index);
+                    self.index = Some((gob_index, entry_index));
                     self.selected = Some(Selected {
                         name: entry.name.to_string(),
                         offset: entry.offset,
                         length: entry.length,
                         text_data,
                         decoded,
+                        reload: false,
                     });
                 }
             });
@@ -198,7 +265,7 @@ impl eframe::epi::App for App {
         });
 
         if let Some(selected) = &mut self.selected {
-            selected.show(ctx);
+            selected.show(ctx, &mut self.gob_palette);
         }
     }
 }
@@ -209,28 +276,48 @@ struct Selected {
     length: u32,
     text_data: String,
     decoded: Decoded,
+    reload: bool,
 }
 
 impl Selected {
-    fn show(&mut self, ctx: &egui::CtxRef) {
+    fn show(&mut self, ctx: &egui::CtxRef, palette: &mut GobPalette) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.allocate_ui_with_layout(
-                ui.available_size(),
-                egui::Layout::left_to_right()
-                    .with_cross_align(egui::Align::Min)
-                    .with_cross_justify(true),
-                |ui| {
-                    ui.allocate_ui(ui.available_size() - egui::Vec2::new(410.0, 0.0), |ui| {
-                        egui::ScrollArea::auto_sized().id_source(1).show(ui, |ui| {
-                            self.decoded.show(ui);
-                        });
-                    });
+            match self.decoded {
+                Decoded::Unknown => {
+                    self.show_raw_data(ui);
+                }
+                _ => {
+                    self.show_content(ui, palette);
+                }
+            }
 
-                    egui::ScrollArea::auto_sized().id_source(2).show(ui, |ui| {
-                        ui.add(egui::Label::from(&self.text_data).monospace().wrap(false));
-                    });
-                },
-            );
+            // ui.allocate_ui_with_layout(
+            //     ui.available_size(),
+            //     egui::Layout::left_to_right()
+            //         .with_cross_align(egui::Align::Min)
+            //         .with_cross_justify(true),
+            //     |ui| {
+            //         ui.allocate_ui(ui.available_size() - egui::Vec2::new(410.0, 0.0), |ui| {
+            //             self.show_content(ui, palette);
+            //         });
+            //     },
+            // );
+        });
+    }
+
+    fn show_content(&mut self, ui: &mut egui::Ui, palette: &mut GobPalette) {
+        egui::ScrollArea::auto_sized().id_source(1).show(ui, |ui| {
+            if self.decoded.want_pal() && palette.show(ui) {
+                self.reload = true;
+            }
+
+            self.decoded.show(ui);
+        });
+    }
+
+    fn show_raw_data(&mut self, ui: &mut egui::Ui) {
+        egui::ScrollArea::auto_sized().id_source(2).show(ui, |ui| {
+            ui.add(egui::Label::from(&self.text_data).monospace().wrap(false));
         });
     }
 }
@@ -241,12 +328,18 @@ struct DecodedCell {
 }
 
 impl DecodedCell {
-    fn load(fw: &mut eframe::epi::Frame, cell: &fme::Cell) -> Self {
+    fn load(fw: &mut eframe::epi::Frame, cell: &fme::Cell, pal: &pal::Pal) -> Self {
         let colors = cell
             .data
             .iter()
-            .map(|c| egui::Color32::from_gray(*c))
-            .collect::<Vec<_>>();
+            .map(|&c| {
+                if c == 0 {
+                    egui::Color32::TRANSPARENT
+                } else {
+                    pal.entries[c as usize].into()
+                }
+            })
+            .collect::<Vec<egui::Color32>>();
 
         let texture_id = fw
             .tex_allocator()
@@ -276,6 +369,9 @@ impl DecodedCell {
 
 enum Decoded {
     Unknown,
+    Pal {
+        texture_id: egui::TextureId,
+    },
     Fme {
         fme: fme::Fme,
         cell: DecodedCell,
@@ -291,6 +387,9 @@ enum Decoded {
 impl Decoded {
     fn free(&self, fw: &mut eframe::epi::Frame) {
         match self {
+            Self::Pal { texture_id, .. } => {
+                fw.tex_allocator().free(*texture_id);
+            }
             Self::Fme { cell, .. } => {
                 cell.free(fw);
             }
@@ -303,19 +402,43 @@ impl Decoded {
         }
     }
 
-    fn read(fw: &mut eframe::epi::Frame, entry: &CatalogEntry, data: &[u8]) -> Self {
+    fn want_pal(&self) -> bool {
+        matches!(self, Self::Wax { .. } | Self::Fme { .. })
+    }
+
+    fn read(
+        fw: &mut eframe::epi::Frame,
+        entry: &CatalogEntry,
+        data: &[u8],
+        pal: &pal::Pal,
+    ) -> Self {
         match entry.name.split('.').last() {
-            Some("FME") => {
-                let fme = match fme::Fme::read(&mut io::Cursor::new(data)) {
-                    Err(error) => {
-                        eprintln!("failed to load FME: {:?}", error);
-                        return Self::Unknown;
+            Some("PAL") => match pal::Pal::read(&mut io::Cursor::new(data)) {
+                Err(error) => {
+                    eprintln!("failed to load PAL: {:?}", error);
+                    return Self::Unknown;
+                }
+                Ok(pal) => {
+                    let mut pixels = [egui::Color32::TRANSPARENT; 256];
+                    for i in 1..256 {
+                        pixels[i] = pal.entries[i].into();
                     }
-                    Ok(fme) => fme,
-                };
-                let cell = DecodedCell::load(fw, &fme.cell);
-                Self::Fme { fme, cell }
-            }
+                    let texture_id = fw
+                        .tex_allocator()
+                        .alloc_srgba_premultiplied((16, 16), &pixels);
+                    Self::Pal { texture_id }
+                }
+            },
+            Some("FME") => match fme::Fme::read(&mut io::Cursor::new(data)) {
+                Err(error) => {
+                    eprintln!("failed to load FME: {:?}", error);
+                    return Self::Unknown;
+                }
+                Ok(fme) => {
+                    let cell = DecodedCell::load(fw, &fme.cell, pal);
+                    Self::Fme { fme, cell }
+                }
+            },
             Some("WAX") => {
                 let wax = match wax::Wax::read(&mut io::Cursor::new(data)) {
                     Err(error) => {
@@ -328,7 +451,7 @@ impl Decoded {
                 let cells = wax
                     .cells
                     .iter()
-                    .map(|cell| DecodedCell::load(fw, cell))
+                    .map(|cell| DecodedCell::load(fw, cell, pal))
                     .collect();
 
                 Self::Wax {
@@ -358,6 +481,9 @@ impl Decoded {
 
         match self {
             Decoded::Unknown => {}
+            Decoded::Pal { texture_id, .. } => {
+                ui.image(*texture_id, (128.0, 128.0));
+            }
             Decoded::Fme { fme, cell } => {
                 ui.vertical(|ui| {
                     egui::Grid::new(1).striped(true).show(ui, |ui| {
