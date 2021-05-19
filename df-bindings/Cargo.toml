@@ -1,17 +1,15 @@
 [package]
-name = "df"
+name = "df-bindings"
 version = "0.1.0"
 authors = ["Simon Buchan <simon.buchan@skilitics.com>"]
 edition = "2018"
 resolver = "2"
+publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-eframe = "0.11"
-midly = "0.5"
+windows = "0.10"
 
-bindings = { package = "df-bindings", path = "df-bindings" }
-
-[workspace]
-members = ["df-bindings"]
+[build-dependencies]
+windows = "0.10"

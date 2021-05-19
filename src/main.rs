@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 use std::fs::{read_dir, File};
-use std::io::{self, prelude::*};
+use std::io;
 use std::path::Path;
 
 use eframe::egui;
@@ -11,6 +11,7 @@ use crate::error::ReadResult;
 mod common;
 mod error;
 mod fme;
+mod gmd;
 mod gob;
 mod lfd;
 mod pal;
@@ -369,6 +370,9 @@ impl DecodedCell {
 
 enum Decoded {
     Unknown,
+    Gmd {
+        playing: Box<dyn Drop>,
+    },
     Pal {
         texture_id: egui::TextureId,
     },
@@ -413,6 +417,9 @@ impl Decoded {
         pal: &pal::Pal,
     ) -> Self {
         match entry.name.split('.').last() {
+            Some("GMD") => Self::Gmd {
+                playing: Box::new(gmd::play_in_thread(data.to_vec())),
+            },
             Some("PAL") => match pal::Pal::read(&mut io::Cursor::new(data)) {
                 Err(error) => {
                     eprintln!("failed to load PAL: {:?}", error);
@@ -481,6 +488,7 @@ impl Decoded {
 
         match self {
             Decoded::Unknown => {}
+            Decoded::Gmd { .. } => {}
             Decoded::Pal { texture_id, .. } => {
                 ui.image(*texture_id, (128.0, 128.0));
             }
