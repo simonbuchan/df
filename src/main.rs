@@ -5,11 +5,13 @@ use std::path::Path;
 
 use eframe::egui;
 
-use crate::common::{Catalog, CatalogEntry};
+use crate::common::{Catalog, CatalogEntry, Vec2u32};
 use crate::error::ReadResult;
 
 mod common;
 mod error;
+
+mod bm;
 mod fme;
 mod gmd;
 mod gob;
@@ -233,7 +235,13 @@ impl eframe::epi::App for App {
 
                     let pal = &self.gob_palette.items[self.gob_palette.selected].1;
 
-                    let decoded = Decoded::read(frame, entry, &data, pal);
+                    let decoded = match Decoded::read(frame, entry, &data, pal) {
+                        Err(error) => {
+                            println!("failed to read: {:?}", error);
+                            Decoded::Unknown
+                        }
+                        Ok(decoded) => decoded,
+                    };
                     let text_data = Self::escape_text_data(&data);
 
                     if let Some(Selected { decoded, .. }) = &self.selected {
@@ -308,11 +316,13 @@ impl Selected {
 
     fn show_content(&mut self, ui: &mut egui::Ui, palette: &mut GobPalette) {
         egui::ScrollArea::auto_sized().id_source(1).show(ui, |ui| {
-            if self.decoded.want_pal() && palette.show(ui) {
-                self.reload = true;
-            }
+            ui.horizontal(|ui| {
+                if self.decoded.want_pal() && palette.show(ui) {
+                    self.reload = true;
+                }
 
-            self.decoded.show(ui);
+                self.decoded.show(ui);
+            });
         });
     }
 
@@ -323,15 +333,14 @@ impl Selected {
     }
 }
 
-struct DecodedCell {
+struct DecodedImage {
     texture_id: egui::TextureId,
     size: egui::Vec2,
 }
 
-impl DecodedCell {
-    fn load(fw: &mut eframe::epi::Frame, cell: &fme::Cell, pal: &pal::Pal) -> Self {
-        let colors = cell
-            .data
+impl DecodedImage {
+    fn load(fw: &mut eframe::epi::Frame, data: &[u8], size: Vec2u32, pal: &pal::Pal) -> Self {
+        let colors = data
             .iter()
             .map(|&c| {
                 if c == 0 {
@@ -344,9 +353,9 @@ impl DecodedCell {
 
         let texture_id = fw
             .tex_allocator()
-            .alloc_srgba_premultiplied(cell.size.into(), &colors);
+            .alloc_srgba_premultiplied(size.into(), &colors);
 
-        let size = egui::Vec2::from(cell.size) * 4.0;
+        let size = egui::Vec2::from(size) * 4.0;
 
         Self { texture_id, size }
     }
@@ -371,18 +380,22 @@ impl DecodedCell {
 enum Decoded {
     Unknown,
     Gmd {
-        playing: Box<dyn Drop>,
+        _playing: Box<dyn Drop>,
+    },
+    Bm {
+        bm: bm::Bm,
+        image: DecodedImage,
     },
     Pal {
         texture_id: egui::TextureId,
     },
     Fme {
         fme: fme::Fme,
-        cell: DecodedCell,
+        image: DecodedImage,
     },
     Wax {
         wax: wax::Wax,
-        cells: Vec<DecodedCell>,
+        images: Vec<DecodedImage>,
         selected_state: usize,
         selected_angle: usize,
     },
@@ -391,15 +404,18 @@ enum Decoded {
 impl Decoded {
     fn free(&self, fw: &mut eframe::epi::Frame) {
         match self {
+            Self::Bm { image, .. } => {
+                image.free(fw);
+            }
             Self::Pal { texture_id, .. } => {
                 fw.tex_allocator().free(*texture_id);
             }
-            Self::Fme { cell, .. } => {
-                cell.free(fw);
+            Self::Fme { image, .. } => {
+                image.free(fw);
             }
-            Self::Wax { cells, .. } => {
-                for cell in cells {
-                    cell.free(fw);
+            Self::Wax { images, .. } => {
+                for image in images {
+                    image.free(fw);
                 }
             }
             _ => {}
@@ -407,7 +423,7 @@ impl Decoded {
     }
 
     fn want_pal(&self) -> bool {
-        matches!(self, Self::Wax { .. } | Self::Fme { .. })
+        matches!(self, Self::Bm { .. } | Self::Wax { .. } | Self::Fme { .. })
     }
 
     fn read(
@@ -415,61 +431,50 @@ impl Decoded {
         entry: &CatalogEntry,
         data: &[u8],
         pal: &pal::Pal,
-    ) -> Self {
-        match entry.name.split('.').last() {
+    ) -> ReadResult<Self> {
+        Ok(match entry.name.split('.').last() {
             Some("GMD") => Self::Gmd {
-                playing: Box::new(gmd::play_in_thread(data.to_vec())),
+                _playing: Box::new(gmd::play_in_thread(data.to_vec())),
             },
-            Some("PAL") => match pal::Pal::read(&mut io::Cursor::new(data)) {
-                Err(error) => {
-                    eprintln!("failed to load PAL: {:?}", error);
-                    return Self::Unknown;
+            Some("BM") => {
+                let bm = bm::Bm::read(&mut io::Cursor::new(data))?;
+                let image = DecodedImage::load(fw, &bm.data, bm.size.into_vec2(), pal);
+                Self::Bm { bm, image }
+            }
+            Some("PAL") => {
+                let pal = pal::Pal::read(&mut io::Cursor::new(data))?;
+                let mut pixels = [egui::Color32::TRANSPARENT; 256];
+                for i in 1..256 {
+                    pixels[i] = pal.entries[i].into();
                 }
-                Ok(pal) => {
-                    let mut pixels = [egui::Color32::TRANSPARENT; 256];
-                    for i in 1..256 {
-                        pixels[i] = pal.entries[i].into();
-                    }
-                    let texture_id = fw
-                        .tex_allocator()
-                        .alloc_srgba_premultiplied((16, 16), &pixels);
-                    Self::Pal { texture_id }
-                }
-            },
-            Some("FME") => match fme::Fme::read(&mut io::Cursor::new(data)) {
-                Err(error) => {
-                    eprintln!("failed to load FME: {:?}", error);
-                    return Self::Unknown;
-                }
-                Ok(fme) => {
-                    let cell = DecodedCell::load(fw, &fme.cell, pal);
-                    Self::Fme { fme, cell }
-                }
-            },
+                let texture_id = fw
+                    .tex_allocator()
+                    .alloc_srgba_premultiplied((16, 16), &pixels);
+                Self::Pal { texture_id }
+            }
+            Some("FME") => {
+                let fme = fme::Fme::read(&mut io::Cursor::new(data))?;
+                let image = DecodedImage::load(fw, &fme.cell.data, fme.cell.size, pal);
+                Self::Fme { fme, image }
+            }
             Some("WAX") => {
-                let wax = match wax::Wax::read(&mut io::Cursor::new(data)) {
-                    Err(error) => {
-                        eprintln!("failed to load WAX: {:?}", error);
-                        return Self::Unknown;
-                    }
-                    Ok(wax) => wax,
-                };
+                let wax = wax::Wax::read(&mut io::Cursor::new(data))?;
 
-                let cells = wax
+                let images = wax
                     .cells
                     .iter()
-                    .map(|cell| DecodedCell::load(fw, cell, pal))
+                    .map(|cell| DecodedImage::load(fw, &cell.data, cell.size, pal))
                     .collect();
 
                 Self::Wax {
                     wax,
-                    cells,
+                    images,
                     selected_state: 1,
                     selected_angle: 0,
                 }
             }
             _ => Self::Unknown,
-        }
+        })
     }
 
     fn show(&mut self, ui: &mut egui::Ui) {
@@ -489,22 +494,31 @@ impl Decoded {
         match self {
             Decoded::Unknown => {}
             Decoded::Gmd { .. } => {}
+            Decoded::Bm { bm, image } => {
+                egui::Grid::new(1).striped(true).show(ui, |ui| {
+                    row_vec2(ui, "size", bm.size);
+                    row_vec2(ui, "idem size", bm.idem_size);
+                    row_code(ui, "flags", format!("{:08b}", bm.flags));
+                    row_code(ui, "compression", format!("{:?}", bm.compression));
+                });
+                image.show(ui, /*flip:*/ false);
+            }
             Decoded::Pal { texture_id, .. } => {
                 ui.image(*texture_id, (128.0, 128.0));
             }
-            Decoded::Fme { fme, cell } => {
+            Decoded::Fme { fme, image } => {
                 ui.vertical(|ui| {
                     egui::Grid::new(1).striped(true).show(ui, |ui| {
                         row_vec2(ui, "offset", fme.frame.offset);
                         row_code(ui, "flip", fme.frame.flip);
                         row_vec2(ui, "size", fme.cell.size);
                     });
-                    cell.show(ui, fme.frame.flip);
+                    image.show(ui, fme.frame.flip);
                 });
             }
             Decoded::Wax {
                 wax,
-                cells,
+                images,
                 selected_state,
                 selected_angle,
             } => {
@@ -550,12 +564,12 @@ impl Decoded {
                                     row_vec2(ui, "size", cell.size);
                                     ui.separator();
                                 });
-                                cells[cell_index].show(ui, frame.flip);
+                                images[cell_index].show(ui, frame.flip);
                             });
                         }
                     }
                     ui.heading("cells");
-                    for (cell, decoded) in wax.cells.iter().zip(cells) {
+                    for (cell, decoded) in wax.cells.iter().zip(images) {
                         ui.image(
                             decoded.texture_id,
                             egui::Vec2::try_from(cell.size).unwrap() * 4.0,

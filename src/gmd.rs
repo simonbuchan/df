@@ -36,17 +36,14 @@ pub fn midi(data: Vec<u8>, stop: &std::sync::atomic::AtomicBool) {
     }
     let mut data = &data[8..];
     while !data.starts_with(b"MThd") {
-        read_buf(&mut data, [0u8; 4]);
+        read_buf(&mut data, [0u8; 4]).unwrap();
         let len = u32::from_be_bytes(read_buf(&mut data, [0u8; 4]).unwrap());
         data = &data[len as usize..];
     }
 
     use bindings::{
-        Interface, Result, RuntimeType,
-        Windows::{
-            Devices::Midi, Foundation::IAsyncOperation, Storage::Streams::Buffer,
-            Win32::System::WinRT::IMemoryBufferByteAccess,
-        },
+        Result, RuntimeType,
+        Windows::{Devices::Midi, Foundation::IAsyncOperation},
     };
 
     fn get<T: RuntimeType>(result: Result<IAsyncOperation<T>>) -> T {
@@ -84,22 +81,6 @@ pub fn midi(data: Vec<u8>, stop: &std::sync::atomic::AtomicBool) {
     let mut elapsed_ticks = 0;
     let mut last_time = time::Instant::now();
     let mut beat = time::Duration::from_secs(1);
-
-    fn create_buffer(data: &[u8]) -> Result<Buffer> {
-        let buffer = Buffer::Create(data.len() as u32)?;
-        let memory = Buffer::CreateMemoryBufferOverIBuffer(buffer.clone())?;
-        let access = memory
-            .CreateReference()?
-            .cast::<IMemoryBufferByteAccess>()?;
-        let memory_bytes = unsafe {
-            let mut ptr = std::ptr::null_mut();
-            let mut len = 0;
-            access.GetBuffer(&mut ptr, &mut len).unwrap();
-            std::slice::from_raw_parts_mut(ptr, len as usize)
-        };
-        memory_bytes.copy_from_slice(data);
-        Ok(buffer)
-    }
 
     for (ts_ticks, event) in events {
         if ts_ticks > elapsed_ticks {

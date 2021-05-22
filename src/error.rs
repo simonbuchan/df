@@ -6,6 +6,7 @@ pub type ReadResult<T> = Result<T, ReadError>;
 pub enum ReadError {
     IO(io::Error),
     Signature,
+    Decoding(&'static str),
 }
 
 impl From<io::Error> for ReadError {

@@ -34,7 +34,7 @@ pub struct WaxFrame {
 }
 
 impl Wax {
-    pub fn read(mut file: impl io::Read + io::Seek) -> io::Result<Self> {
+    pub fn read(mut file: impl io::Read + io::Seek) -> ReadResult<Self> {
         let version = read_u32(&mut file)?;
         let num_sequences = read_u32(&mut file)?;
         let num_frames = read_u32(&mut file)?;
