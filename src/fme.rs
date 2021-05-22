@@ -50,9 +50,7 @@ impl Cell {
         // file.seek(io::SeekFrom::Current(data_offset as i64))?;
 
         let columns = if !compressed {
-            let mut columns = vec![0u8; size.x as usize * size.y as usize];
-            file.read_exact(&mut columns)?;
-            columns
+            read_vec(&mut file, (size.x * size.y) as usize)?
         } else {
             rle0(&mut file, offset, size)?
         };

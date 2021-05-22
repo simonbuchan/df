@@ -17,6 +17,7 @@ mod gmd;
 mod gob;
 mod lfd;
 mod pal;
+mod voc;
 mod wax;
 
 fn main() -> ReadResult<()> {
@@ -379,6 +380,9 @@ impl DecodedImage {
 
 enum Decoded {
     Unknown,
+    Voc {
+        voc: voc::Voc,
+    },
     Gmd {
         _playing: Box<dyn Drop>,
     },
@@ -433,9 +437,17 @@ impl Decoded {
         pal: &pal::Pal,
     ) -> ReadResult<Self> {
         Ok(match entry.name.split('.').last() {
-            Some("GMD") => Self::Gmd {
-                _playing: Box::new(gmd::play_in_thread(data.to_vec())),
-            },
+            // Audio
+            Some("VOC") => {
+                let voc = voc::Voc::read(&mut io::Cursor::new(data))?;
+                Self::Voc { voc }
+            }
+            Some("GMD") => {
+                let playing = Box::new(gmd::play_in_thread(data.to_vec()));
+                Self::Gmd { _playing: playing }
+            }
+
+            // Images
             Some("BM") => {
                 let bm = bm::Bm::read(&mut io::Cursor::new(data))?;
                 let image = DecodedImage::load(fw, &bm.data, bm.size.into_vec2(), pal);
@@ -493,6 +505,58 @@ impl Decoded {
 
         match self {
             Decoded::Unknown => {}
+            Decoded::Voc { voc } => {
+                ui.vertical(|ui| {
+                    egui::Grid::new(1).show(ui, |ui| {
+                        row_code(ui, "version", {
+                            let [major, minor] = voc.version.to_be_bytes();
+                            format!("{}.{}", major, minor)
+                        });
+                    });
+                    for chunk in &voc.chunks {
+                        ui.group(|ui| {
+                            egui::Grid::new(2).show(ui, |ui| match chunk {
+                                voc::Chunk::SoundStart {
+                                    sample_rate,
+                                    codec,
+                                    data,
+                                } => {
+                                    row_code(ui, "chunk", "sound start");
+                                    row_code(ui, "sample rate", sample_rate);
+                                    row_code(ui, "codec", codec);
+                                    row_code(ui, "data len", data.len());
+                                }
+                                voc::Chunk::SoundContinue { data } => {
+                                    row_code(ui, "chunk", "sound continue");
+                                    row_code(ui, "data len", data.len());
+                                }
+                                voc::Chunk::Silence {
+                                    sample_rate,
+                                    sample_count,
+                                } => {
+                                    row_code(ui, "chunk", "silence");
+                                    row_code(ui, "sample rate", sample_rate);
+                                    row_code(ui, "sample count", sample_count);
+                                }
+                                voc::Chunk::Repeat { count } => {
+                                    row_code(ui, "chunk", "repeat");
+                                    match count {
+                                        Some(value) => row_code(ui, "count", value),
+                                        None => row_code(ui, "count", "inf"),
+                                    }
+                                }
+                                voc::Chunk::RepeatEnd => {
+                                    row_code(ui, "chunk", "repeat end");
+                                }
+                                voc::Chunk::Unknown { ty, len } => {
+                                    row_code(ui, "chunk", ty);
+                                    row_code(ui, "len", len);
+                                }
+                            });
+                        });
+                    }
+                });
+            }
             Decoded::Gmd { .. } => {}
             Decoded::Bm { bm, image } => {
                 egui::Grid::new(1).striped(true).show(ui, |ui| {

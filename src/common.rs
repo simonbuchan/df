@@ -1,6 +1,15 @@
 pub use crate::error::*;
 use std::io;
 
+pub fn read_buf<T: AsMut<[u8]>>(mut input: impl io::Read, mut buffer: T) -> io::Result<T> {
+    input.read_exact(buffer.as_mut())?;
+    Ok(buffer)
+}
+
+pub fn read_vec(mut input: impl io::Read, len: usize) -> io::Result<Vec<u8>> {
+    read_buf(input, vec![0u8; len])
+}
+
 pub fn read_u8(input: impl io::Read) -> io::Result<u8> {
     read_buf(input, [0u8; 1]).map(u8::from_le_bytes)
 }
@@ -73,11 +82,6 @@ macro_rules! vec2_subtype {
 vec2_subtype!(u16, Vec2u16, read_vec2_u16, read_u16);
 vec2_subtype!(i32, Vec2i32, read_vec2_i32, read_i32);
 vec2_subtype!(u32, Vec2u32, read_vec2_u32, read_u32);
-
-pub fn read_buf<T: AsMut<[u8]>>(mut input: impl io::Read, mut buffer: T) -> io::Result<T> {
-    input.read_exact(buffer.as_mut())?;
-    Ok(buffer)
-}
 
 pub struct Catalog {
     pub entries: Vec<CatalogEntry>,
