@@ -11,7 +11,7 @@ resolver = "2"
 eframe = "0.11"
 midly = "0.5"
 
-bindings = { package = "df-bindings", path = "df-bindings" }
+bindings = { package = "df-bindings", path = "bindings" }
 
 [workspace]
-members = ["df-bindings"]
+members = ["bindings"]

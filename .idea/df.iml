@@ -31,15 +31,15 @@
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/miniz_oxide-5474e203a1c0b3bd/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/num-traits-42fc1039b3687aed/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-adcf780baf531a8f/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/df-bindings/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/crossbeam-utils-2f990d93de885cc0/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/df-bindings-c17b24bd2a3828b1/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/proc-macro2-317340c942b8e05c/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/rayon-c43e5c420a9b24b3/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/rayon-core-8d5009a3923ea0a3/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/syn-bc855a24c682cbd9/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/bindings/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
-      <excludeFolder url="file://$MODULE_DIR$/df-bindings/target" />
+      <excludeFolder url="file://$MODULE_DIR$/bindings/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
