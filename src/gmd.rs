@@ -19,6 +19,25 @@ pub fn play_in_thread(data: Vec<u8>) -> impl Drop {
         .name("midi_playback".to_string())
         .stack_size(0x1000)
         .spawn({
+            #[cfg(windows)]
+            {
+                use std::ffi::c_void;
+                extern "system" {
+                    fn GetCurrentThread() -> *mut c_void;
+                    fn SetThreadPriority(handle: *mut c_void, priority: i32) -> i32;
+                }
+                const THREAD_PRIORITY_TIME_CRITICAL: i32 = 15;
+                let ok = unsafe {
+                    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL) != 0
+                };
+                if !ok {
+                    println!(
+                        "SetThreadPriority() failed: {}",
+                        std::io::Error::last_os_error()
+                    );
+                }
+            }
+
             let stop = stop.0.clone();
             move || {
                 midi(data, &stop);
