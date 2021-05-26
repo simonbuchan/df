@@ -6,7 +6,7 @@ pub fn read_buf<T: AsMut<[u8]>>(mut input: impl io::Read, mut buffer: T) -> io::
     Ok(buffer)
 }
 
-pub fn read_vec(mut input: impl io::Read, len: usize) -> io::Result<Vec<u8>> {
+pub fn read_vec(input: impl io::Read, len: usize) -> io::Result<Vec<u8>> {
     read_buf(input, vec![0u8; len])
 }
 

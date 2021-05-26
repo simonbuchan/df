@@ -382,6 +382,7 @@ enum Decoded {
     Unknown,
     Voc {
         voc: voc::Voc,
+        player: voc::Player,
     },
     Gmd {
         _playing: Box<dyn Drop>,
@@ -440,7 +441,8 @@ impl Decoded {
             // Audio
             Some("VOC") => {
                 let voc = voc::Voc::read(&mut io::Cursor::new(data))?;
-                Self::Voc { voc }
+                let player = voc::play(&voc).unwrap();
+                Self::Voc { voc, player }
             }
             Some("GMD") => {
                 let playing = Box::new(gmd::play_in_thread(data.to_vec()));
@@ -505,7 +507,7 @@ impl Decoded {
 
         match self {
             Decoded::Unknown => {}
-            Decoded::Voc { voc } => {
+            Decoded::Voc { voc, player } => {
                 ui.vertical(|ui| {
                     egui::Grid::new(1).show(ui, |ui| {
                         row_code(ui, "version", {

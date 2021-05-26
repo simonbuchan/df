@@ -1,5 +1,6 @@
-use crate::common::*;
 use std::{fmt, io};
+
+use crate::common::*;
 
 pub struct Voc {
     pub version: u16,
@@ -116,11 +117,126 @@ impl Chunk {
 // and recovering:
 //   = 1_000_000 / (256 - 165)
 //   = 10_989 (off by ~36)
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct SampleRate(u8);
 
+// impl SampleRate {
+//     pub fn sample_count_duration(&self, count: usize) -> std::time::Duration {
+//         std::time::Duration::from_nanos((256 - self.0 as u64) * count as u64)
+//     }
+// }
+//
 impl fmt::Display for SampleRate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "~{}Hz", 1_000_000 / (256 - self.0 as u32))
     }
+}
+
+pub struct Player {
+    graph: bindings::Windows::Media::Audio::AudioGraph,
+}
+impl Drop for Player {
+    fn drop(&mut self) {
+        if let Err(error) = self.graph.Close() {
+            eprintln!("AudioGraph::Close failed: {}", error);
+        }
+    }
+}
+
+pub fn play(
+    voc: &Voc,
+    // commands: std::sync::mpsc::Receiver<MediaCommand>,
+) -> bindings::Result<Player> {
+    use bindings::{
+        Interface,
+        Windows::Foundation::TypedEventHandler,
+        Windows::Media::{Audio::*, MediaProperties::*, Render::*, *},
+        Windows::Win32::System::WinRT::IMemoryBufferByteAccess,
+    };
+
+    let settings = AudioGraphSettings::Create(AudioRenderCategory::GameEffects)?;
+    let graph = AudioGraph::CreateAsync(settings)?.get()?.Graph()?;
+
+    let input_node =
+        graph.CreateFrameInputNodeWithFormat(AudioEncodingProperties::CreatePcm(11_025, 1, 8)?)?;
+
+    let output_node = graph
+        .CreateDeviceOutputNodeAsync()?
+        .get()?
+        .DeviceOutputNode()?;
+    input_node.AddOutgoingConnection(output_node)?;
+
+    fn create_frame(data: &[u8]) -> bindings::Result<AudioFrame> {
+        let frame = AudioFrame::Create(data.len() as u32)?;
+        let buffer = frame.LockBuffer(AudioBufferAccessMode::Write)?;
+        let reference = buffer.CreateReference()?;
+        write_buffer(reference.cast()?, data)?;
+        reference.Close()?;
+        buffer.Close()?;
+        Ok(frame)
+    }
+
+    fn write_buffer(access: IMemoryBufferByteAccess, data: &[u8]) -> bindings::Result<()> {
+        unsafe {
+            let mut bytes = std::ptr::null_mut();
+            let mut len = 0;
+            access.GetBuffer(&mut bytes, &mut len).ok()?;
+            bytes.copy_from(data.as_ptr(), data.len().min(len as usize));
+        }
+        Ok(())
+    }
+
+    let mut repeat = false;
+    let mut repeat_frames = Vec::new();
+
+    for chunk in &voc.chunks {
+        match chunk {
+            Chunk::SoundStart { data, .. } | Chunk::SoundContinue { data } => {
+                let frame = create_frame(data)?;
+                if repeat {
+                    repeat_frames.push(frame.clone());
+                    // Avoids small gaps by ensuring there's always a frame being played. E.g.
+                    // A(B#), where B should repeat, should end up with a queue like:
+                    // ABB
+                    //  BB
+                    //   B
+                    //   BB
+                    //    B
+                    //    BB
+                    // ...
+                    // Probably a smarter way to do this?
+                    // This is assuming only one repeated chunk, of course.
+                    input_node.AddFrame(frame.clone())?;
+                }
+                input_node.AddFrame(frame)?;
+            }
+            Chunk::Repeat { .. } => {
+                repeat = true;
+            }
+            Chunk::RepeatEnd => {
+                repeat = false;
+            }
+            _ => {}
+        }
+    }
+
+    graph.Start()?;
+
+    input_node.AudioFrameCompleted(TypedEventHandler::<
+        AudioFrameInputNode,
+        AudioFrameCompletedEventArgs,
+    >::new({
+        let input_node = input_node.clone();
+        move |_node, args| {
+            if let Some(args) = args {
+                let frame = args.Frame()?;
+                if repeat_frames.contains(&frame) {
+                    input_node.AddFrame(frame)?;
+                }
+            }
+            Ok(())
+        }
+    }))?;
+
+    Ok(Player { graph })
 }

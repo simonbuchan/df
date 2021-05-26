@@ -1,5 +1,6 @@
-use crate::common::read_buf;
 use std::{thread, time};
+
+use crate::common::*;
 
 pub fn play_in_thread(data: Vec<u8>) -> impl Drop {
     use std::sync::{
@@ -19,25 +20,6 @@ pub fn play_in_thread(data: Vec<u8>) -> impl Drop {
         .name("midi_playback".to_string())
         .stack_size(0x1000)
         .spawn({
-            #[cfg(windows)]
-            {
-                use std::ffi::c_void;
-                extern "system" {
-                    fn GetCurrentThread() -> *mut c_void;
-                    fn SetThreadPriority(handle: *mut c_void, priority: i32) -> i32;
-                }
-                const THREAD_PRIORITY_TIME_CRITICAL: i32 = 15;
-                let ok = unsafe {
-                    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL) != 0
-                };
-                if !ok {
-                    println!(
-                        "SetThreadPriority() failed: {}",
-                        std::io::Error::last_os_error()
-                    );
-                }
-            }
-
             let stop = stop.0.clone();
             move || {
                 midi(data, &stop);
@@ -101,6 +83,8 @@ pub fn midi(data: Vec<u8>, stop: &std::sync::atomic::AtomicBool) {
     let mut last_time = time::Instant::now();
     let mut beat = time::Duration::from_secs(1);
 
+    try_set_thread_priority_real_time();
+
     for (ts_ticks, event) in events {
         if ts_ticks > elapsed_ticks {
             let ticks = ts_ticks - elapsed_ticks;
@@ -127,7 +111,7 @@ pub fn midi(data: Vec<u8>, stop: &std::sync::atomic::AtomicBool) {
         }
 
         if stop.load(std::sync::atomic::Ordering::SeqCst) {
-            println!("Cancelled");
+            println!("MIDI: Cancelled");
             return;
         }
 
@@ -233,4 +217,24 @@ pub fn midi(data: Vec<u8>, stop: &std::sync::atomic::AtomicBool) {
     }
 
     println!("MIDI: done");
+}
+
+fn try_set_thread_priority_real_time() {
+    #[cfg(windows)]
+    {
+        use std::ffi::c_void;
+        extern "system" {
+            fn GetCurrentThread() -> *mut c_void;
+            fn SetThreadPriority(handle: *mut c_void, priority: i32) -> i32;
+        }
+        const THREAD_PRIORITY_TIME_CRITICAL: i32 = 15;
+        let ok =
+            unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL) != 0 };
+        if !ok {
+            println!(
+                "SetThreadPriority() failed: {}",
+                std::io::Error::last_os_error()
+            );
+        }
+    }
 }
