@@ -5,7 +5,7 @@ use std::path::Path;
 
 use eframe::egui;
 
-use crate::common::{Catalog, CatalogEntry, Vec2u32};
+use crate::common::{Catalog, CatalogEntry, Vec2f32, Vec2u32};
 use crate::error::ReadResult;
 
 mod common;
@@ -15,13 +15,14 @@ mod bm;
 mod fme;
 mod gmd;
 mod gob;
+mod lev;
 mod lfd;
 mod pal;
 mod voc;
 mod wax;
 
 fn main() -> ReadResult<()> {
-    eframe::run_native(Box::new(App::new()?))
+    eframe::run_native(Box::new(App::new()?), eframe::NativeOptions::default())
 }
 
 struct App {
@@ -165,21 +166,29 @@ impl App {
                 })
                 .collect()
         } else {
-            data.iter()
-                .flat_map(|&c| {
-                    let escape = match c {
-                        b'\r' | b'\n' | b' ' => false,
-                        b'\\' => true,
-                        c => !c.is_ascii_graphic(),
-                    };
-                    let (a, b) = if !escape {
-                        (Some(std::iter::once(char::from(c))), None)
-                    } else {
-                        (None, Some(char::from(c).escape_default()))
-                    };
-                    a.into_iter().flatten().chain(b.into_iter().flatten())
-                })
-                .collect()
+            match std::str::from_utf8(data) {
+                Ok(str) => str
+                    .lines()
+                    .enumerate()
+                    .map(|(index, line)| format!("{:5}: {}\n", index + 1, line))
+                    .collect(),
+                Err(_) => data
+                    .iter()
+                    .flat_map(|&c| {
+                        let escape = match c {
+                            b'\r' | b'\n' | b' ' => false,
+                            b'\\' => true,
+                            c => !c.is_ascii_graphic(),
+                        };
+                        let (a, b) = if !escape {
+                            (Some(std::iter::once(char::from(c))), None)
+                        } else {
+                            (None, Some(char::from(c).escape_default()))
+                        };
+                        a.into_iter().flatten().chain(b.into_iter().flatten())
+                    })
+                    .collect(),
+            }
         }
     }
 }
@@ -380,6 +389,12 @@ impl DecodedImage {
 
 enum Decoded {
     Unknown,
+    Lev {
+        lev: lev::Lev,
+        bounds: egui::Rect,
+        scroll: egui::Vec2,
+        zoom: f32,
+    },
     Voc {
         voc: voc::Voc,
         player: voc::Player,
@@ -438,6 +453,23 @@ impl Decoded {
         pal: &pal::Pal,
     ) -> ReadResult<Self> {
         Ok(match entry.name.split('.').last() {
+            // Levels
+            Some("LEV") => {
+                let lev = lev::Lev::read(&mut io::Cursor::new(data))?;
+                let mut bounds = egui::Rect::NOTHING;
+                for sector in &lev.sectors {
+                    for Vec2f32 { x, y } in &sector.vertices {
+                        bounds.extend_with(egui::Pos2::new(*x, *y));
+                    }
+                }
+                Self::Lev {
+                    lev,
+                    bounds,
+                    scroll: egui::Vec2::ZERO,
+                    zoom: 0.0,
+                }
+            }
+
             // Audio
             Some("VOC") => {
                 let voc = voc::Voc::read(&mut io::Cursor::new(data))?;
@@ -507,6 +539,46 @@ impl Decoded {
 
         match self {
             Decoded::Unknown => {}
+            Decoded::Lev {
+                ref lev,
+                ref bounds,
+                ref mut scroll,
+                ref mut zoom,
+            } => {
+                let response = ui.allocate_rect(ui.clip_rect().shrink(10.0), egui::Sense::drag());
+                let drag_delta = response.drag_delta();
+                let painter = egui::Painter::new(response.ctx, ui.layer_id(), response.rect);
+
+                if ui.rect_contains_pointer(painter.clip_rect()) {
+                    *zoom += ui.input().scroll_delta.y;
+                }
+
+                let scale = (*zoom / 20.0).exp();
+                let offset = painter.clip_rect().min + bounds.min.to_vec2() + *scroll;
+
+                *scroll += drag_delta * scale;
+
+                let edge_stroke = egui::Stroke::new(1.0, egui::Color32::RED);
+                let walk_stroke = egui::Stroke::new(1.0, egui::Color32::LIGHT_GRAY);
+
+                for sector in &lev.sectors {
+                    for wall in &sector.walls {
+                        let left = sector.vertices[wall.left_vertex];
+                        let right = sector.vertices[wall.right_vertex];
+
+                        let left = offset + egui::Vec2::new(left.x, left.y) * scale;
+                        let right = offset + egui::Vec2::new(right.x, right.y) * scale;
+
+                        let stroke = if wall.walk_sector.is_none() {
+                            edge_stroke
+                        } else {
+                            walk_stroke
+                        };
+
+                        painter.line_segment([left, right], stroke);
+                    }
+                }
+            }
             Decoded::Voc { voc, player } => {
                 ui.vertical(|ui| {
                     egui::Grid::new(1).show(ui, |ui| {

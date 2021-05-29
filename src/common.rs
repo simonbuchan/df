@@ -42,12 +42,8 @@ pub struct Vec2<T> {
 }
 
 macro_rules! vec2_subtype {
-    ($p: ty, $vec: ident, $read_vec: ident, $read_p: ident) => {
+    ($p: ty, $vec: ident) => {
         pub type $vec = Vec2<$p>;
-
-        pub fn $read_vec(input: impl io::Read) -> io::Result<$vec> {
-            read_vec2(input, |r| $read_p(r))
-        }
 
         impl $vec {
             pub fn from_vec2<T: Into<$p>>(value: Vec2<T>) -> Self {
@@ -77,11 +73,19 @@ macro_rules! vec2_subtype {
             }
         }
     };
+    ($p: ty, $vec: ident, $read_vec: ident, $read_p: ident) => {
+        vec2_subtype!($p, $vec);
+
+        pub fn $read_vec(input: impl io::Read) -> io::Result<$vec> {
+            read_vec2(input, |r| $read_p(r))
+        }
+    };
 }
 
 vec2_subtype!(u16, Vec2u16, read_vec2_u16, read_u16);
 vec2_subtype!(i32, Vec2i32, read_vec2_i32, read_i32);
 vec2_subtype!(u32, Vec2u32, read_vec2_u32, read_u32);
+vec2_subtype!(f32, Vec2f32);
 
 pub struct Catalog {
     pub entries: Vec<CatalogEntry>,
