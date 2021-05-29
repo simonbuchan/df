@@ -546,17 +546,31 @@ impl Decoded {
                 ref mut zoom,
             } => {
                 let response = ui.allocate_rect(ui.clip_rect().shrink(10.0), egui::Sense::drag());
+                let hover_pos = response.hover_pos();
                 let drag_delta = response.drag_delta();
                 let painter = egui::Painter::new(response.ctx, ui.layer_id(), response.rect);
 
-                if ui.rect_contains_pointer(painter.clip_rect()) {
-                    *zoom += ui.input().scroll_delta.y;
+                fn zoom_to_scale(zoom: f32) -> f32 {
+                    (zoom / 20.0).exp()
                 }
 
-                let scale = (*zoom / 20.0).exp();
-                let offset = painter.clip_rect().min + bounds.min.to_vec2() + *scroll;
+                if let Some(pos) = hover_pos {
+                    let delta = ui.input().scroll_delta.y;
+                    // adjust to keep pointer in same place.
+                    // by default, delta = 0, zoom_to_scale(delta) = 1,
+                    *scroll -= pos.to_vec2() * (zoom_to_scale(delta) - 1.0);
+                    *zoom += delta;
+                }
 
+                let scale = zoom_to_scale(*zoom);
                 *scroll += drag_delta * scale;
+
+                let offset = {
+                    let ui_origin = painter.clip_rect().min;
+                    let mut map_origin = bounds.left_bottom().to_vec2();
+                    map_origin.x = -map_origin.x;
+                    ui_origin + map_origin + *scroll
+                };
 
                 let edge_stroke = egui::Stroke::new(1.0, egui::Color32::RED);
                 let walk_stroke = egui::Stroke::new(1.0, egui::Color32::LIGHT_GRAY);
@@ -566,8 +580,8 @@ impl Decoded {
                         let left = sector.vertices[wall.left_vertex];
                         let right = sector.vertices[wall.right_vertex];
 
-                        let left = offset + egui::Vec2::new(left.x, left.y) * scale;
-                        let right = offset + egui::Vec2::new(right.x, right.y) * scale;
+                        let left = offset + egui::Vec2::new(left.x, -left.y) * scale;
+                        let right = offset + egui::Vec2::new(right.x, -right.y) * scale;
 
                         let stroke = if wall.walk_sector.is_none() {
                             edge_stroke
@@ -578,6 +592,22 @@ impl Decoded {
                         painter.line_segment([left, right], stroke);
                     }
                 }
+
+                let origin_stroke = egui::Stroke::new(1.0, egui::Color32::LIGHT_BLUE);
+                painter.line_segment(
+                    [
+                        offset - egui::Vec2::new(-5.0, 0.0),
+                        offset - egui::Vec2::new(5.0, 0.0),
+                    ],
+                    origin_stroke,
+                );
+                painter.line_segment(
+                    [
+                        offset - egui::Vec2::new(0.0, -5.0),
+                        offset - egui::Vec2::new(0.0, 5.0),
+                    ],
+                    origin_stroke,
+                );
             }
             Decoded::Voc { voc, player } => {
                 ui.vertical(|ui| {
