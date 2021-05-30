@@ -79,10 +79,14 @@ impl Mesh {
 pub struct Renderer {
     pipeline: wgpu::RenderPipeline,
     mesh: Mesh,
+    // texture: wgpu::Texture,
+    // texture_view: wgpu::TextureView,
+    // sampler: wgpu::Sampler,
+    bind_group: wgpu::BindGroup,
 }
 
 impl Renderer {
-    pub fn new(context: &Context) -> Self {
+    pub fn new(context: &Context, texture: wgpu::Texture) -> Self {
         let shader_module = context
             .device
             .create_shader_module(&wgpu::ShaderModuleDescriptor {
@@ -91,11 +95,48 @@ impl Renderer {
                 source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
             });
 
+        let bind_group_layout =
+            context
+                .device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: None,
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            visibility: wgpu::ShaderStage::FRAGMENT,
+                            binding: 1,
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            ty: wgpu::BindingType::Sampler {
+                                comparison: false,
+                                filtering: true,
+                            },
+                            visibility: wgpu::ShaderStage::FRAGMENT,
+                            binding: 2,
+                            count: None,
+                        },
+                    ],
+                });
+
+        let pipeline_layout =
+            context
+                .device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: None,
+                    bind_group_layouts: &[&bind_group_layout],
+                    push_constant_ranges: &[],
+                });
+
         let pipeline = context
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: None,
-                layout: None, // Some(&pipeline_layout),
+                layout: Some(&pipeline_layout),
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleList,
                     ..Default::default()
@@ -116,15 +157,60 @@ impl Renderer {
                 fragment: Some(wgpu::FragmentState {
                     entry_point: "fs_main",
                     module: &shader_module,
-                    targets: &[context.format.into()],
+                    targets: &[wgpu::ColorTargetState {
+                        format: context.format,
+                        blend: Some(wgpu::BlendState {
+                            color: wgpu::BlendComponent::OVER,
+                            alpha: wgpu::BlendComponent::OVER,
+                        }),
+                        write_mask: wgpu::ColorWrite::ALL,
+                    }],
                 }),
                 depth_stencil: None,
                 multisample: wgpu::MultisampleState::default(),
             });
 
+        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
+            ..Default::default()
+        });
+
+        let sampler = context.device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
+            min_filter: wgpu::FilterMode::Nearest,
+            mag_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        let bind_group = context
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&texture_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+            });
+
         let mesh = Mesh::triangle(context);
 
-        Self { pipeline, mesh }
+        Self {
+            pipeline,
+            mesh,
+            // texture,
+            // texture_view,
+            // sampler,
+            bind_group,
+        }
     }
 
     pub fn render(&mut self, context: &Context, frame: &wgpu::SwapChainTexture) {
@@ -145,6 +231,7 @@ impl Renderer {
         });
 
         render_pass.set_pipeline(&self.pipeline);
+        render_pass.set_bind_group(0, &self.bind_group, &[]);
 
         self.mesh.draw(&mut render_pass);
 
