@@ -1,24 +1,11 @@
-use std::convert::TryFrom;
 use std::fs::{read_dir, File};
 use std::io;
 use std::path::Path;
 
 use eframe::egui;
 
-use crate::common::*;
-
-mod common;
-mod error;
-
-mod bm;
-mod fme;
-mod gmd;
-mod gob;
-mod lev;
-mod lfd;
-mod pal;
-mod voc;
-mod wax;
+use formats::common::*;
+use formats::*;
 
 fn main() -> ReadResult<()> {
     eframe::run_native(Box::new(App::new()?), eframe::NativeOptions::default())
@@ -355,7 +342,8 @@ impl DecodedImage {
                 if c == 0 {
                     egui::Color32::TRANSPARENT
                 } else {
-                    pal.entries[c as usize].into()
+                    let (r, g, b) = pal.entries[c as usize].to_rgb();
+                    egui::Color32::from_rgb(r, g, b)
                 }
             })
             .collect::<Vec<egui::Color32>>();
@@ -364,7 +352,7 @@ impl DecodedImage {
             .tex_allocator()
             .alloc_srgba_premultiplied(size.into(), &colors);
 
-        let size = egui::Vec2::from(size) * 4.0;
+        let size = egui::Vec2::new(size.x as f32, size.y as f32) * 4.0;
 
         Self { texture_id, size }
     }
@@ -490,7 +478,8 @@ impl Decoded {
                 let pal = pal::Pal::read(&mut io::Cursor::new(data))?;
                 let mut pixels = [egui::Color32::TRANSPARENT; 256];
                 for i in 1..256 {
-                    pixels[i] = pal.entries[i].into();
+                    let (r, g, b) = pal.entries[i].to_rgb();
+                    pixels[i] = egui::Color32::from_rgb(r, g, b);
                 }
                 let texture_id = fw
                     .tex_allocator()
@@ -739,7 +728,7 @@ impl Decoded {
                     for (cell, decoded) in wax.cells.iter().zip(images) {
                         ui.image(
                             decoded.texture_id,
-                            egui::Vec2::try_from(cell.size).unwrap() * 4.0,
+                            egui::Vec2::new(cell.size.x as f32, cell.size.y as f32) * 4.0,
                         );
                     }
                 });

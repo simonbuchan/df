@@ -9,6 +9,8 @@ impl Pal {
     pub fn read(file: impl io::Read) -> io::Result<Self> {
         let bytes = read_buf(file, [0u8; 256 * 3])?;
         Ok(Self {
+            // Safety: [u8; 3] has the same layout as Entry,
+            //         so [u8; 256 * 3] has the same layout as [Entry; 256]
             entries: unsafe { std::mem::transmute(bytes) },
         })
     }
@@ -24,14 +26,12 @@ pub struct Entry {
 
 impl Entry {
     pub const BLACK: Entry = Entry { r: 0, g: 0, b: 0 };
-}
 
-impl From<Entry> for eframe::egui::Color32 {
-    fn from(value: Entry) -> Self {
-        Self::from_rgb(
-            channel_6_to_8_bit(value.r),
-            channel_6_to_8_bit(value.g),
-            channel_6_to_8_bit(value.b),
+    pub fn to_rgb(self) -> (u8, u8, u8) {
+        (
+            channel_6_to_8_bit(self.r),
+            channel_6_to_8_bit(self.g),
+            channel_6_to_8_bit(self.b),
         )
     }
 }

@@ -66,12 +66,6 @@ macro_rules! vec2_subtype {
                 (value.x as usize, value.y as usize)
             }
         }
-
-        impl From<$vec> for eframe::egui::Vec2 {
-            fn from(value: $vec) -> Self {
-                Self::new(value.x as f32, value.y as f32)
-            }
-        }
     };
     ($p: ty, $vec: ident, $read_vec: ident, $read_p: ident) => {
         vec2_subtype!($p, $vec);

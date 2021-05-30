@@ -405,10 +405,8 @@ dependencies = [
 name = "df"
 version = "0.1.0"
 dependencies = [
- "df-bindings",
+ "df-formats",
  "eframe",
- "midly",
- "nom",
 ]
 
 [[package]]
@@ -416,6 +414,15 @@ name = "df-bindings"
 version = "0.1.0"
 dependencies = [
  "windows",
+]
+
+[[package]]
+name = "df-formats"
+version = "0.1.0"
+dependencies = [
+ "df-bindings",
+ "midly",
+ "nom",
 ]
 
 [[package]]
