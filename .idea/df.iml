@@ -2,7 +2,6 @@
 <module type="CPP_MODULE" version="4">
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
-      <sourceFolder url="file://$MODULE_DIR$/bindings/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/ahash-495d7bb714fa5af2/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/backtrace-064012c565108785/out" isTestSource="false" />
@@ -29,6 +28,7 @@
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/nom-46a9bcb51463e777/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/radium-234527326c65627d/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/ryu-d1a8c0ab36a4ecfa/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/bindings/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

@@ -12,7 +12,7 @@ eframe = "0.12"
 midly = "0.5"
 nom = { version = "6", features = ["std"] }
 
-bindings = { package = "df-bindings", path = "bindings" }
+bindings = { package = "df-bindings", path = "crates/bindings" }
 
 [workspace]
-members = ["bindings"]
+members = ["crates/*"]
