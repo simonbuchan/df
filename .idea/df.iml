@@ -29,6 +29,7 @@
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/radium-234527326c65627d/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/ryu-d1a8c0ab36a4ecfa/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/bindings/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/explorer/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/formats/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/df-bindings-b937482d2d9eb33f/out" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />

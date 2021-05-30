@@ -1,16 +1,2 @@
-[package]
-name = "df"
-version = "0.1.0"
-authors = ["Simon Buchan <simon.buchan@skilitics.com>"]
-edition = "2018"
-resolver = "2"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-eframe = "0.12"
-
-formats = { package = "df-formats", path = "crates/formats" }
-
 [workspace]
 members = ["crates/*"]
