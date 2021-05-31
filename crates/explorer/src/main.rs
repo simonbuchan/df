@@ -379,8 +379,10 @@ enum Decoded {
     Lev {
         lev: lev::Lev,
         bounds: egui::Rect,
+        layers: Vec<i32>,
         scroll: egui::Vec2,
         zoom: f32,
+        layer_index: usize,
     },
     Voc {
         voc: voc::Voc,
@@ -444,7 +446,9 @@ impl Decoded {
             Some("LEV") => {
                 let lev = lev::Lev::read(&mut io::Cursor::new(data))?;
                 let mut bounds = egui::Rect::NOTHING;
+                let mut layers = std::collections::BTreeSet::new();
                 for sector in &lev.sectors {
+                    layers.insert(sector.layer);
                     for Vec2f32 { x, y } in &sector.vertices {
                         bounds.extend_with(egui::Pos2::new(*x, *y));
                     }
@@ -452,8 +456,10 @@ impl Decoded {
                 Self::Lev {
                     lev,
                     bounds,
+                    layers: layers.into_iter().collect(),
                     scroll: egui::Vec2::ZERO,
                     zoom: 0.0,
+                    layer_index: 0,
                 }
             }
 
@@ -530,40 +536,64 @@ impl Decoded {
             Decoded::Lev {
                 ref lev,
                 ref bounds,
+                ref layers,
                 ref mut scroll,
                 ref mut zoom,
+                ref mut layer_index,
             } => {
                 let response = ui.allocate_rect(ui.clip_rect().shrink(10.0), egui::Sense::drag());
                 let hover_pos = response.hover_pos();
                 let drag_delta = response.drag_delta();
                 let painter = egui::Painter::new(response.ctx, ui.layer_id(), response.rect);
 
+                if ui.input().key_pressed(egui::Key::Space) {
+                    *layer_index += 1;
+                    *layer_index %= layers.len();
+                }
+                let layer = layers[*layer_index];
+
+                *scroll += drag_delta;
+
                 fn zoom_to_scale(zoom: f32) -> f32 {
                     (zoom / 20.0).exp()
                 }
 
-                if let Some(pos) = hover_pos {
-                    let delta = ui.input().scroll_delta.y;
-                    // adjust to keep pointer in same place.
-                    // by default, delta = 0, zoom_to_scale(delta) = 1,
-                    *scroll -= pos.to_vec2() * (zoom_to_scale(delta) - 1.0);
-                    *zoom += delta;
-                }
+                let mut offset = {
+                    let clip_rect = painter.clip_rect();
 
-                let scale = zoom_to_scale(*zoom);
-                *scroll += drag_delta * scale;
-
-                let offset = {
-                    let ui_origin = painter.clip_rect().min;
-                    let mut map_origin = bounds.left_bottom().to_vec2();
-                    map_origin.x = -map_origin.x;
-                    ui_origin + map_origin + *scroll
+                    let x = clip_rect.left() - bounds.left() + scroll.x;
+                    let y = clip_rect.top() + bounds.bottom() + scroll.y;
+                    egui::Pos2 { x, y }
                 };
 
-                let edge_stroke = egui::Stroke::new(1.0, egui::Color32::RED);
-                let walk_stroke = egui::Stroke::new(1.0, egui::Color32::LIGHT_GRAY);
+                let mut scale = zoom_to_scale(*zoom);
+
+                if let Some(pos) = hover_pos {
+                    let zoom_delta = ui.input().scroll_delta.y;
+                    if zoom_delta != 0.0 {
+                        *zoom += zoom_delta;
+                        let new_scale = zoom_to_scale(*zoom);
+
+                        // Adjust to keep pointer in same map position. This means the following
+                        // must not change:
+                        //   (pos.x - offset.x) / scale
+                        //   (offset.y - pos.y) / scale
+                        let mut delta = offset - pos;
+                        delta *= new_scale / scale;
+                        delta += pos - offset;
+
+                        // update stored
+                        *scroll += delta;
+                        // and for this frame
+                        offset += delta;
+
+                        scale = new_scale;
+                    }
+                }
 
                 for sector in &lev.sectors {
+                    let edge_width = if sector.layer == layer { 1.0 } else { 0.2 };
+
                     for wall in &sector.walls {
                         let left = sector.vertices[wall.left_vertex];
                         let right = sector.vertices[wall.right_vertex];
@@ -571,11 +601,12 @@ impl Decoded {
                         let left = offset + egui::Vec2::new(left.x, -left.y) * scale;
                         let right = offset + egui::Vec2::new(right.x, -right.y) * scale;
 
-                        let stroke = if wall.walk_sector.is_none() {
-                            edge_stroke
+                        let stroke_color = if wall.walk_sector.is_none() {
+                            egui::Color32::RED
                         } else {
-                            walk_stroke
+                            egui::Color32::LIGHT_GRAY
                         };
+                        let stroke = egui::Stroke::new(edge_width, stroke_color);
 
                         painter.line_segment([left, right], stroke);
                     }
@@ -596,6 +627,21 @@ impl Decoded {
                     ],
                     origin_stroke,
                 );
+
+                if let Some(pos) = hover_pos {
+                    painter.text(
+                        painter.clip_rect().left_top(),
+                        egui::Align2::LEFT_TOP,
+                        format!(
+                            "{:.2}, {:.2} / layer {}",
+                            (pos.x - offset.x) / scale,
+                            (offset.y - pos.y) / scale,
+                            layer,
+                        ),
+                        egui::TextStyle::Body,
+                        egui::Color32::YELLOW,
+                    );
+                }
             }
             Decoded::Voc { voc, player } => {
                 ui.vertical(|ui| {
