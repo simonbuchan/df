@@ -1,11 +1,13 @@
 use winit::event_loop::EventLoop;
 
+use crate::render_target::SurfaceRenderTarget;
 use context::Context;
 use renderer::Renderer;
 
 mod context;
 mod loader;
 mod mesh;
+mod render_target;
 mod renderer;
 
 fn main() {
@@ -19,9 +21,26 @@ fn main() {
 
     let level = loader.load_lev("SECBASE.LEV", &context).unwrap();
 
-    let renderer = Renderer::new(&context, level);
+    let mut renderer = Renderer::new(&context, level);
 
-    context.run(event_loop, renderer);
+    let mut target = SurfaceRenderTarget::new(&context);
+
+    event_loop.run(move |event, _, control_flow| {
+        use winit::event::{Event, WindowEvent};
+        use winit::event_loop::ControlFlow;
+        match event {
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => {
+                *control_flow = ControlFlow::Exit;
+            }
+            Event::RedrawRequested(_) => {
+                target.render(&context, &mut renderer);
+            }
+            _ => {}
+        }
+    });
 }
 
 pub(crate) fn poll_device<F: std::future::Future>(context: &Context, mut fut: F) -> F::Output {

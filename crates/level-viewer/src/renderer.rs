@@ -175,6 +175,20 @@ impl Renderer {
         }
     }
 
+    pub fn set_view(&mut self, context: &Context, aspect: f32) {
+        self.set_transform(context, {
+            let eye = cgmath::point3(246.0, 310.0, 8.0);
+            let proj = cgmath::perspective(cgmath::Deg(45.0), aspect, 1.0, 2000.0);
+            let view = cgmath::Matrix4::look_to_rh(
+                eye,
+                cgmath::vec3(-1.0, -2.0, 0.0),
+                cgmath::Vector3::unit_z(),
+            );
+            proj * view
+        })
+        .unwrap();
+    }
+
     pub fn set_transform(
         &mut self,
         context: &Context,
@@ -202,38 +216,10 @@ impl Renderer {
         )
     }
 
-    pub fn render(&mut self, context: &Context, frame: &wgpu::SwapChainTexture) {
-        let mut encoder = context
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            color_attachments: &[wgpu::RenderPassColorAttachment {
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::RED),
-                    store: true,
-                },
-                view: &frame.view,
-                resolve_target: None,
-            }],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &context.depth_texture_view,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: false,
-                }),
-                stencil_ops: None,
-            }),
-            ..Default::default()
-        });
-
+    pub fn render<'a>(&'a mut self, render_pass: &mut wgpu::RenderPass<'a>) {
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.bind_group, &[]);
 
-        self.level.mesh.draw(&mut render_pass);
-
-        drop(render_pass);
-
-        context.queue.submit(std::iter::once(encoder.finish()));
+        self.level.mesh.draw(render_pass);
     }
 }
