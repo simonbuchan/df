@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 formats = { package = "df-formats", path = "../formats" }
 
+cgmath = "0.18"
 pollster = "0.2"
 winit = "0.25"
 wgpu = "0.8"

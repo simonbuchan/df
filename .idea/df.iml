@@ -56,6 +56,10 @@
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-ccb08e781e8b62e2/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-f42efd2d59dadf20/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winit-f864abd4b389b815/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/cgmath-7b5338afb0b59523/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/df-level-viewer-915fc6e1979b65e1/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/level-viewer/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/df-level-viewer-e3e35de97da4d80a/out" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

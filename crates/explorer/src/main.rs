@@ -376,17 +376,10 @@ impl DecodedImage {
 
 enum Decoded {
     Unknown,
-    Lev {
-        lev: lev::Lev,
-        bounds: egui::Rect,
-        layers: Vec<i32>,
-        scroll: egui::Vec2,
-        zoom: f32,
-        layer_index: usize,
-    },
+    Lev(DecodedLev),
     Voc {
         voc: voc::Voc,
-        player: voc::Player,
+        _player: voc::Player,
     },
     Gmd {
         _playing: Box<dyn Drop>,
@@ -445,29 +438,17 @@ impl Decoded {
             // Levels
             Some("LEV") => {
                 let lev = lev::Lev::read(&mut io::Cursor::new(data))?;
-                let mut bounds = egui::Rect::NOTHING;
-                let mut layers = std::collections::BTreeSet::new();
-                for sector in &lev.sectors {
-                    layers.insert(sector.layer);
-                    for Vec2f32 { x, y } in &sector.vertices {
-                        bounds.extend_with(egui::Pos2::new(*x, *y));
-                    }
-                }
-                Self::Lev {
-                    lev,
-                    bounds,
-                    layers: layers.into_iter().collect(),
-                    scroll: egui::Vec2::ZERO,
-                    zoom: 0.0,
-                    layer_index: 0,
-                }
+                Self::Lev(DecodedLev::new(lev))
             }
 
             // Audio
             Some("VOC") => {
                 let voc = voc::Voc::read(&mut io::Cursor::new(data))?;
                 let player = voc::play(&voc).unwrap();
-                Self::Voc { voc, player }
+                Self::Voc {
+                    voc,
+                    _player: player,
+                }
             }
             Some("GMD") => {
                 let playing = Box::new(gmd::play_in_thread(data.to_vec()));
@@ -533,117 +514,10 @@ impl Decoded {
 
         match self {
             Decoded::Unknown => {}
-            Decoded::Lev {
-                ref lev,
-                ref bounds,
-                ref layers,
-                ref mut scroll,
-                ref mut zoom,
-                ref mut layer_index,
-            } => {
-                let response = ui.allocate_rect(ui.clip_rect().shrink(10.0), egui::Sense::drag());
-                let hover_pos = response.hover_pos();
-                let drag_delta = response.drag_delta();
-                let painter = egui::Painter::new(response.ctx, ui.layer_id(), response.rect);
-
-                if ui.input().key_pressed(egui::Key::Space) {
-                    *layer_index += 1;
-                    *layer_index %= layers.len();
-                }
-                let layer = layers[*layer_index];
-
-                *scroll += drag_delta;
-
-                fn zoom_to_scale(zoom: f32) -> f32 {
-                    (zoom / 20.0).exp()
-                }
-
-                let mut offset = {
-                    let clip_rect = painter.clip_rect();
-
-                    let x = clip_rect.left() - bounds.left() + scroll.x;
-                    let y = clip_rect.top() + bounds.bottom() + scroll.y;
-                    egui::Pos2 { x, y }
-                };
-
-                let mut scale = zoom_to_scale(*zoom);
-
-                if let Some(pos) = hover_pos {
-                    let zoom_delta = ui.input().scroll_delta.y;
-                    if zoom_delta != 0.0 {
-                        *zoom += zoom_delta;
-                        let new_scale = zoom_to_scale(*zoom);
-
-                        // Adjust to keep pointer in same map position. This means the following
-                        // must not change:
-                        //   (pos.x - offset.x) / scale
-                        //   (offset.y - pos.y) / scale
-                        let mut delta = offset - pos;
-                        delta *= new_scale / scale;
-                        delta += pos - offset;
-
-                        // update stored
-                        *scroll += delta;
-                        // and for this frame
-                        offset += delta;
-
-                        scale = new_scale;
-                    }
-                }
-
-                for sector in &lev.sectors {
-                    let edge_width = if sector.layer == layer { 1.0 } else { 0.2 };
-
-                    for wall in &sector.walls {
-                        let left = sector.vertices[wall.left_vertex];
-                        let right = sector.vertices[wall.right_vertex];
-
-                        let left = offset + egui::Vec2::new(left.x, -left.y) * scale;
-                        let right = offset + egui::Vec2::new(right.x, -right.y) * scale;
-
-                        let stroke_color = if wall.walk_sector.is_none() {
-                            egui::Color32::RED
-                        } else {
-                            egui::Color32::LIGHT_GRAY
-                        };
-                        let stroke = egui::Stroke::new(edge_width, stroke_color);
-
-                        painter.line_segment([left, right], stroke);
-                    }
-                }
-
-                let origin_stroke = egui::Stroke::new(1.0, egui::Color32::LIGHT_BLUE);
-                painter.line_segment(
-                    [
-                        offset - egui::Vec2::new(-5.0, 0.0),
-                        offset - egui::Vec2::new(5.0, 0.0),
-                    ],
-                    origin_stroke,
-                );
-                painter.line_segment(
-                    [
-                        offset - egui::Vec2::new(0.0, -5.0),
-                        offset - egui::Vec2::new(0.0, 5.0),
-                    ],
-                    origin_stroke,
-                );
-
-                if let Some(pos) = hover_pos {
-                    painter.text(
-                        painter.clip_rect().left_top(),
-                        egui::Align2::LEFT_TOP,
-                        format!(
-                            "{:.2}, {:.2} / layer {}",
-                            (pos.x - offset.x) / scale,
-                            (offset.y - pos.y) / scale,
-                            layer,
-                        ),
-                        egui::TextStyle::Body,
-                        egui::Color32::YELLOW,
-                    );
-                }
+            Decoded::Lev(decoded) => {
+                decoded.show(ui);
             }
-            Decoded::Voc { voc, player } => {
+            Decoded::Voc { voc, .. } => {
                 ui.vertical(|ui| {
                     egui::Grid::new(1).show(ui, |ui| {
                         row_code(ui, "version", {
@@ -778,6 +652,278 @@ impl Decoded {
                         );
                     }
                 });
+            }
+        }
+    }
+}
+
+struct DecodedLev {
+    lev: lev::Lev,
+    bounds: egui::Rect,
+    layers: Vec<i32>,
+    scroll: egui::Vec2,
+    zoom: f32,
+    layer_index: usize,
+    sector_index: usize,
+}
+
+impl DecodedLev {
+    fn new(lev: lev::Lev) -> DecodedLev {
+        let mut bounds = egui::Rect::NOTHING;
+        let mut layers = std::collections::BTreeSet::new();
+        for sector in &lev.sectors {
+            layers.insert(sector.layer);
+            for Vec2f32 { x, y } in &sector.vertices {
+                bounds.extend_with(egui::Pos2::new(*x, *y));
+            }
+        }
+        Self {
+            lev,
+            bounds,
+            layers: layers.into_iter().collect(),
+            scroll: egui::Vec2::ZERO,
+            zoom: 0.0,
+            layer_index: 0,
+            sector_index: 0,
+        }
+    }
+
+    fn show(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            self.show_map(ui);
+
+            ui.vertical_centered_justified(|ui| {
+                ui.add(
+                    egui::Slider::new(&mut self.sector_index, 0..=self.lev.sectors.len() - 1)
+                        .text("sector"),
+                );
+                let sector = &self.lev.sectors[self.sector_index];
+                egui::Grid::new("head").show(ui, |ui| {
+                    ui.label("id");
+                    ui.code(format!("{}", sector.id));
+                    ui.end_row();
+                    if let Some(ref name) = sector.name {
+                        ui.label("name");
+                        ui.code(name);
+                        ui.end_row();
+                    }
+                    ui.label("ambient");
+                    ui.code(format!("{}", sector.ambient));
+                    ui.end_row();
+                });
+
+                egui::containers::ScrollArea::auto_sized().show(ui, |ui| {
+                    for (ix, wall) in sector.walls.iter().enumerate() {
+                        ui.group(|ui| {
+                            egui::Grid::new(ix).show(ui, |ui| {
+                                ui.label("Wall");
+                                ui.code(format!("{}", ix));
+                                ui.end_row();
+                                ui.label("left");
+                                ui.code(format!("{}", wall.left_vertex));
+                                let left = sector.vertices[wall.left_vertex];
+                                ui.code(format!("{}", left.x));
+                                ui.code(format!("{}", left.y));
+                                ui.end_row();
+                                ui.label("right");
+                                ui.code(format!("{}", wall.right_vertex));
+                                let right = sector.vertices[wall.right_vertex];
+                                ui.code(format!("{}", right.x));
+                                ui.code(format!("{}", right.y));
+                                ui.end_row();
+                                ui.label("light");
+                                ui.code(format!("{}", wall.light));
+                                ui.end_row();
+                                ui.label("textures");
+                                ui.end_row();
+                                fn tex_row(
+                                    ui: &mut egui::Ui,
+                                    name: &str,
+                                    lev: &lev::Lev,
+                                    texture: &lev::Texture,
+                                ) {
+                                    if let Some(tex) = texture.index {
+                                        ui.label(name);
+                                        ui.code(&lev.texture_names[tex]);
+                                        ui.code(format!("{}", texture.offset.x));
+                                        ui.code(format!("{}", texture.offset.y));
+                                        ui.end_row();
+                                    }
+                                }
+                                tex_row(ui, "mid", &self.lev, &wall.middle_texture);
+                                tex_row(ui, "top", &self.lev, &wall.top_texture);
+                                tex_row(ui, "bot", &self.lev, &wall.bottom_texture);
+                            });
+                        });
+                    }
+                });
+            });
+        });
+    }
+
+    fn show_map(&mut self, ui: &mut egui::Ui) {
+        let mut rect = ui.clip_rect();
+        rect.max.x -= 300.0;
+        let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
+        let hover_pos = response.hover_pos();
+        let clicked = response.clicked();
+        let drag_delta = response.drag_delta();
+        let painter = egui::Painter::new(response.ctx, ui.layer_id(), response.rect.shrink(10.0));
+
+        if ui.input().key_pressed(egui::Key::Space) {
+            self.layer_index += 1;
+            self.layer_index %= self.layers.len();
+        }
+        let layer = self.layers[self.layer_index];
+
+        self.scroll += drag_delta;
+
+        fn zoom_to_scale(zoom: f32) -> f32 {
+            (zoom / 20.0).exp()
+        }
+
+        let mut offset = {
+            let clip_rect = painter.clip_rect();
+
+            let x = clip_rect.left() - self.bounds.left() + self.scroll.x;
+            let y = clip_rect.top() + self.bounds.bottom() + self.scroll.y;
+            egui::Pos2 { x, y }
+        };
+
+        let mut scale = zoom_to_scale(self.zoom);
+
+        if let Some(pos) = hover_pos {
+            let zoom_delta = ui.input().scroll_delta.y;
+            if zoom_delta != 0.0 {
+                self.zoom += zoom_delta;
+                let new_scale = zoom_to_scale(self.zoom);
+
+                // Adjust to keep pointer in same map position. This means the following
+                // must not change:
+                //   (pos.x - offset.x) / scale
+                //   (offset.y - pos.y) / scale
+                let mut delta = offset - pos;
+                delta *= new_scale / scale;
+                delta += pos - offset;
+
+                // update stored
+                self.scroll += delta;
+                // and for this frame
+                offset += delta;
+
+                scale = new_scale;
+            }
+        }
+
+        let hover_map_pos = hover_pos.map(|pos| egui::Pos2 {
+            x: (pos.x - offset.x) / scale,
+            y: (offset.y - pos.y) / scale,
+        });
+
+        let mut hover_sectors = Vec::new();
+
+        for sector in &self.lev.sectors {
+            // draw walls (including walk walls, e.g. cliffs, steps, windows, ...)
+            let edge_width = if sector.layer == layer { 1.0 } else { 0.2 };
+
+            for wall in &sector.walls {
+                let left = sector.vertices[wall.left_vertex];
+                let right = sector.vertices[wall.right_vertex];
+
+                let left = offset + egui::Vec2::new(left.x, -left.y) * scale;
+                let right = offset + egui::Vec2::new(right.x, -right.y) * scale;
+
+                let stroke_color = if wall.walk_sector.is_none() {
+                    egui::Color32::RED
+                } else {
+                    egui::Color32::LIGHT_GRAY
+                };
+                let stroke = egui::Stroke::new(edge_width, stroke_color);
+
+                painter.line_segment([left, right], stroke);
+            }
+
+            // Test if mouse is hovering this sector using the ray-cast approach from:
+            // http://alienryderflex.com/polygon/
+            if let Some(pos) = hover_map_pos {
+                let mut inside = false;
+                for wall in &sector.walls {
+                    let left = sector.vertices[wall.left_vertex];
+                    let right = sector.vertices[wall.right_vertex];
+                    if (left.y < pos.y && pos.y <= right.y || right.y < pos.y && pos.y <= left.y)
+                        && (left.x + (pos.y - left.y) / (right.y - left.y) * (right.x - left.x)
+                            < pos.x)
+                    {
+                        inside = !inside;
+                    }
+                }
+
+                if inside {
+                    hover_sectors.push(sector);
+                }
+            }
+        }
+
+        let origin_stroke = egui::Stroke::new(1.0, egui::Color32::LIGHT_BLUE);
+        painter.line_segment(
+            [
+                offset - egui::Vec2::new(-5.0, 0.0),
+                offset - egui::Vec2::new(5.0, 0.0),
+            ],
+            origin_stroke,
+        );
+        painter.line_segment(
+            [
+                offset - egui::Vec2::new(0.0, -5.0),
+                offset - egui::Vec2::new(0.0, 5.0),
+            ],
+            origin_stroke,
+        );
+
+        if let Some(pos) = hover_map_pos {
+            let mut text_bounds = painter.text(
+                painter.clip_rect().left_top(),
+                egui::Align2::LEFT_TOP,
+                format_args!("{:.2}, {:.2} / layer {}", pos.x, pos.y, layer),
+                egui::TextStyle::Body,
+                egui::Color32::YELLOW,
+            );
+            for sector in &hover_sectors {
+                text_bounds = painter.text(
+                    text_bounds.left_bottom(),
+                    egui::Align2::LEFT_TOP,
+                    format_args!(
+                        "sector {}: {:.2}..{:.2} {:?}",
+                        sector.id,
+                        sector.floor_altitude,
+                        sector.ceiling_altitude,
+                        sector.name.as_deref().unwrap_or_default(),
+                    ),
+                    egui::TextStyle::Body,
+                    if layer == sector.layer {
+                        egui::Color32::WHITE
+                    } else {
+                        egui::Color32::LIGHT_GRAY
+                    },
+                );
+            }
+
+            if clicked && !hover_sectors.is_empty() {
+                // Select the next (or first) hovered sector on click.
+                // *should* be the case that lev.sectors[x].id == x, but not actually guaranteed.
+                let last_hover_index = hover_sectors
+                    .iter()
+                    .position(|s| s.id == self.lev.sectors[self.sector_index].id);
+                let next_hover_index = match last_hover_index {
+                    None => 0,
+                    Some(x) => (x + 1) % hover_sectors.len(),
+                };
+                let next_sector_id = hover_sectors[next_hover_index].id;
+                if let Some(next_sector_index) =
+                    self.lev.sectors.iter().position(|s| s.id == next_sector_id)
+                {
+                    self.sector_index = next_sector_index;
+                }
             }
         }
     }

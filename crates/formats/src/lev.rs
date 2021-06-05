@@ -216,7 +216,7 @@ pub struct Wall {
     pub mirror_wall: Option<usize>,
     pub walk_sector: Option<usize>,
     pub flags: (u32, u32, u32),
-    pub light: u32,
+    pub light: i16,
 }
 
 impl Wall {
@@ -231,8 +231,10 @@ impl Wall {
         let (input, mirror_wall) = entry_inline("MIRROR:", opt_uint)(input)?;
         let (input, walk_sector) = entry_inline("WALK:", opt_uint)(input)?;
         let (input, flags) = entry_inline("FLAGS:", tuple((uint, uint, uint)))(input)?;
-        let (input, light) = entry_inline("LIGHT:", uint)(input)?;
+        let (input, light) = entry_inline("LIGHT:", uint::<u16>)(input)?;
         let (input, _) = eol(input)?;
+
+        let light = light as i16;
 
         let result = Self {
             left_vertex,

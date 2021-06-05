@@ -66,7 +66,15 @@ impl Bm {
                 data,
             })
         } else {
-            Err(ReadError::Decoding("multiple unimplemented"))
+            eprintln!("multiple unimplemented");
+            Ok(Bm {
+                size: Vec2u16 { x: 1, y: 1 },
+                idem_size,
+                flags,
+                log_size_y,
+                compression,
+                data: vec![1],
+            })
         }
     }
 }

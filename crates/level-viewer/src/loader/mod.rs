@@ -4,13 +4,18 @@ use std::path::Path;
 
 use wgpu::util::DeviceExt;
 
+use formats::common::Vec2u16;
+pub use level::Level;
+
 use crate::context::Context;
 
 pub type LoaderResult<T> = Result<T, LoaderError>;
 
+mod level;
+
 #[derive(Debug)]
 pub enum LoaderError {
-    NotFound,
+    NotFound(String),
     IO(io::Error),
     Read(formats::common::ReadError),
 }
@@ -42,7 +47,7 @@ impl Loader {
     }
 
     pub fn load_pal(&mut self, name: &str) -> LoaderResult<formats::pal::Pal> {
-        let file = self.dark.entry(name).ok_or(LoaderError::NotFound)?;
+        let file = self.dark.entry(name)?;
         let pal = formats::pal::Pal::read(file)?;
         Ok(pal)
     }
@@ -52,16 +57,17 @@ impl Loader {
         name: &str,
         pal: &formats::pal::Pal,
         context: &Context,
-    ) -> LoaderResult<wgpu::Texture> {
-        let file = self.textures.entry(name).ok_or(LoaderError::NotFound)?;
+    ) -> LoaderResult<(Vec2u16, wgpu::Texture)> {
+        let file = self.textures.entry(name)?;
+
         let bm = formats::bm::Bm::read(file)?;
+
         let texels = bm
             .data
             .iter()
             .flat_map(|&i| {
                 std::array::IntoIter::new({
-                    // Todo: check bm transparency flag
-                    if i == 0 {
+                    if bm.flags & 8 == 0 && i == 0 {
                         [0, 0, 0, 0]
                     } else {
                         let (r, g, b) = pal.entries[i as usize].to_rgb();
@@ -73,25 +79,49 @@ impl Loader {
 
         let texture = context.device.create_texture_with_data(
             &context.queue,
-            &wgpu::TextureDescriptor {
-                label: Some(name),
-                size: wgpu::Extent3d {
-                    width: bm.size.x as u32,
-                    height: bm.size.y as u32,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                usage: wgpu::TextureUsage::SAMPLED
-                    | wgpu::TextureUsage::COPY_SRC
-                    | wgpu::TextureUsage::COPY_DST,
-            },
+            &Self::texture_descriptor(name, bm.size.x as u32, bm.size.y as u32),
             &texels,
         );
 
-        Ok(texture)
+        Ok((bm.size, texture))
+    }
+
+    pub fn load_bm_or_default(
+        &mut self,
+        name: &str,
+        pal: &formats::pal::Pal,
+        context: &Context,
+    ) -> (Vec2u16, wgpu::Texture) {
+        self.load_bm(name, pal, context).unwrap_or_else(|_| {
+            (
+                Vec2u16 { x: 1, y: 1 },
+                context.device.create_texture_with_data(
+                    &context.queue,
+                    &Loader::texture_descriptor("default_texture", 1, 1),
+                    &vec![255, 0, 255, 255],
+                ),
+            )
+        })
+    }
+
+    fn texture_descriptor(name: &str, width: u32, height: u32) -> wgpu::TextureDescriptor {
+        wgpu::TextureDescriptor {
+            label: Some(name),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::COPY_DST,
+        }
+    }
+
+    pub fn load_lev(&mut self, name: &str, context: &Context) -> LoaderResult<level::Level> {
+        level::Level::load(self, name, context)
     }
 }
 
@@ -107,18 +137,20 @@ impl Gob {
         Ok(Self { file, catalog })
     }
 
-    pub fn entry<'a>(&'a mut self, name: &str) -> Option<impl io::Read + io::Seek + 'a> {
+    pub fn entry<'a>(&'a mut self, name: &str) -> LoaderResult<impl io::Read + io::Seek + 'a> {
         let entry = self
             .catalog
             .entries
             .iter()
-            .find(|entry| entry.name == name)?;
+            .find(|entry| entry.name.eq_ignore_ascii_case(name))
+            .ok_or_else(|| LoaderError::NotFound(name.to_string()))?;
 
-        io::Seek::seek(&mut self.file, io::SeekFrom::Start(entry.offset as u64)).unwrap();
+        io::Seek::seek(&mut self.file, io::SeekFrom::Start(entry.offset as u64))?;
+
         // let mut data = vec![0u8; entry.length as usize];
         // std::io::Read::read_exact(&mut self.file, &mut data).unwrap();
         // Some(std::io::Cursor::new(data))
-        Some(GobRead {
+        Ok(GobRead {
             file: &mut self.file,
             pointer: 0,
             entry_offset: entry.offset,

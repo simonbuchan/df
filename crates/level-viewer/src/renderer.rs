@@ -1,99 +1,41 @@
+use std::num::NonZeroU32;
+
+use cgmath::prelude::*;
+
 use crate::context::Context;
-
-use wgpu::util::DeviceExt;
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-struct Vertex {
-    pos: [f32; 4],
-}
-
-impl Vertex {
-    const STRIDE: wgpu::BufferAddress = std::mem::size_of::<Self>() as _;
-
-    const fn new(x: f32, y: f32) -> Self {
-        Self {
-            pos: [x, y, 0.0, 1.0],
-        }
-    }
-}
-
-struct Mesh {
-    vertices: wgpu::Buffer,
-    indices: wgpu::Buffer,
-    index_count: u32,
-}
-
-impl Mesh {
-    fn triangle(context: &Context) -> Self {
-        const VERTICES: &[Vertex] = &[
-            Vertex::new(0.0, 0.5),
-            Vertex::new(-0.5, -0.5),
-            Vertex::new(0.5, -0.5),
-        ];
-        const INDICES: &[u16] = &[0, 1, 2];
-        Self::new(context, VERTICES, INDICES)
-    }
-
-    fn transmute_slice<T: Copy, U: Copy>(src: &[T]) -> &[U] {
-        let size = std::mem::size_of_val(src);
-        let rem = size % std::mem::size_of::<U>();
-        assert_eq!(rem, 0);
-        let len = size / std::mem::size_of::<U>();
-        let ptr = src.as_ptr();
-        // Safety: src and dst contents are Copy, we have checked sizes above
-        unsafe { std::slice::from_raw_parts(ptr.cast(), len) }
-    }
-
-    fn new(context: &Context, vertex_data: &[Vertex], index_data: &[u16]) -> Self {
-        let vertices = context
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                usage: wgpu::BufferUsage::VERTEX,
-                contents: Self::transmute_slice(vertex_data),
-            });
-
-        let indices = context
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                usage: wgpu::BufferUsage::INDEX,
-                contents: Self::transmute_slice(index_data),
-            });
-
-        Self {
-            vertices,
-            indices,
-            index_count: index_data.len() as u32,
-        }
-    }
-
-    fn draw<'a>(&'a self, encoder: &mut wgpu::RenderPass<'a>) {
-        encoder.set_vertex_buffer(0, self.vertices.slice(..));
-        encoder.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint16);
-        encoder.draw_indexed(0..self.index_count, 0, 0..1);
-    }
-}
+use crate::mesh::Vertex;
 
 pub struct Renderer {
     pipeline: wgpu::RenderPipeline,
-    mesh: Mesh,
-    // texture: wgpu::Texture,
-    // texture_view: wgpu::TextureView,
-    // sampler: wgpu::Sampler,
+    locals_buffer: wgpu::Buffer,
+    level: crate::loader::Level,
     bind_group: wgpu::BindGroup,
 }
 
+macro_rules! shader_source {
+    ($name: literal) => {
+        wgpu::util::make_spirv(include_bytes!(concat!(env!("OUT_DIR"), "/", $name, ".spv")))
+    };
+}
+
 impl Renderer {
-    pub fn new(context: &Context, texture: wgpu::Texture) -> Self {
-        let shader_module = context
-            .device
-            .create_shader_module(&wgpu::ShaderModuleDescriptor {
-                label: None,
-                flags: wgpu::ShaderFlags::empty(),
-                source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
-            });
+    pub fn new(context: &Context, level: crate::loader::Level) -> Self {
+        let vert_shader_module =
+            context
+                .device
+                .create_shader_module(&wgpu::ShaderModuleDescriptor {
+                    label: None,
+                    flags: wgpu::ShaderFlags::empty(),
+                    source: shader_source!("shader.vert.glsl"),
+                });
+        let frag_shader_module =
+            context
+                .device
+                .create_shader_module(&wgpu::ShaderModuleDescriptor {
+                    label: None,
+                    flags: wgpu::ShaderFlags::empty(),
+                    source: shader_source!("shader.frag.glsl"),
+                });
 
         let bind_group_layout =
             context
@@ -102,6 +44,16 @@ impl Renderer {
                     label: None,
                     entries: &[
                         wgpu::BindGroupLayoutEntry {
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                min_binding_size: None,
+                                has_dynamic_offset: false,
+                            },
+                            visibility: wgpu::ShaderStage::VERTEX_FRAGMENT,
+                            binding: 0,
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
                             ty: wgpu::BindingType::Texture {
                                 sample_type: wgpu::TextureSampleType::Float { filterable: true },
                                 view_dimension: wgpu::TextureViewDimension::D2,
@@ -109,7 +61,7 @@ impl Renderer {
                             },
                             visibility: wgpu::ShaderStage::FRAGMENT,
                             binding: 1,
-                            count: None,
+                            count: NonZeroU32::new(level.textures.len() as u32),
                         },
                         wgpu::BindGroupLayoutEntry {
                             ty: wgpu::BindingType::Sampler {
@@ -132,6 +84,8 @@ impl Renderer {
                     push_constant_ranges: &[],
                 });
 
+        let depth_format = wgpu::TextureFormat::Depth32Float;
+
         let pipeline = context
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -142,21 +96,13 @@ impl Renderer {
                     ..Default::default()
                 },
                 vertex: wgpu::VertexState {
-                    entry_point: "vs_main",
-                    module: &shader_module,
-                    buffers: &[wgpu::VertexBufferLayout {
-                        array_stride: Vertex::STRIDE,
-                        step_mode: wgpu::InputStepMode::Vertex,
-                        attributes: &[wgpu::VertexAttribute {
-                            offset: 0,
-                            format: wgpu::VertexFormat::Float32x4,
-                            shader_location: 0,
-                        }],
-                    }],
+                    entry_point: "main",
+                    module: &vert_shader_module,
+                    buffers: std::slice::from_ref(&Vertex::BUFFER_LAYOUT),
                 },
                 fragment: Some(wgpu::FragmentState {
-                    entry_point: "fs_main",
-                    module: &shader_module,
+                    entry_point: "main",
+                    module: &frag_shader_module,
                     targets: &[wgpu::ColorTargetState {
                         format: context.format,
                         blend: Some(wgpu::BlendState {
@@ -166,13 +112,22 @@ impl Renderer {
                         write_mask: wgpu::ColorWrite::ALL,
                     }],
                 }),
-                depth_stencil: None,
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: depth_format,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
                 multisample: wgpu::MultisampleState::default(),
             });
 
-        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
-            ..Default::default()
-        });
+        let texture_views = level
+            .textures
+            .iter()
+            .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()))
+            .collect::<Vec<wgpu::TextureView>>();
+        let texture_views = texture_views.iter().collect::<Vec<&wgpu::TextureView>>();
 
         let sampler = context.device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::Repeat,
@@ -184,6 +139,13 @@ impl Renderer {
             ..Default::default()
         });
 
+        let locals_buffer = context.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 64,
+            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::MAP_WRITE,
+            mapped_at_creation: false,
+        });
+
         let bind_group = context
             .device
             .create_bind_group(&wgpu::BindGroupDescriptor {
@@ -191,8 +153,12 @@ impl Renderer {
                 layout: &bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: locals_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&texture_view),
+                        resource: wgpu::BindingResource::TextureViewArray(&texture_views),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
@@ -201,16 +167,39 @@ impl Renderer {
                 ],
             });
 
-        let mesh = Mesh::triangle(context);
-
         Self {
             pipeline,
-            mesh,
-            // texture,
-            // texture_view,
-            // sampler,
+            locals_buffer,
+            level,
             bind_group,
         }
+    }
+
+    pub fn set_transform(
+        &mut self,
+        context: &Context,
+        transform: impl Into<cgmath::Matrix4<f32>>,
+    ) -> Result<(), wgpu::BufferAsyncError> {
+        fn imp(
+            buffer: &wgpu::Buffer,
+            context: &Context,
+            transform: &[f32; 16],
+        ) -> Result<(), wgpu::BufferAsyncError> {
+            let slice = buffer.slice(..);
+            let fut = slice.map_async(wgpu::MapMode::Write);
+            crate::poll_device(&context, fut)?;
+            slice
+                .get_mapped_range_mut()
+                .copy_from_slice(crate::transmute_slice(transform));
+            buffer.unmap();
+            Ok(())
+        }
+
+        imp(
+            &self.locals_buffer,
+            context,
+            transform.into().transpose().as_ref(),
+        )
     }
 
     pub fn render(&mut self, context: &Context, frame: &wgpu::SwapChainTexture) {
@@ -227,13 +216,21 @@ impl Renderer {
                 view: &frame.view,
                 resolve_target: None,
             }],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &context.depth_texture_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: false,
+                }),
+                stencil_ops: None,
+            }),
             ..Default::default()
         });
 
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.bind_group, &[]);
 
-        self.mesh.draw(&mut render_pass);
+        self.level.mesh.draw(&mut render_pass);
 
         drop(render_pass);
 
