@@ -1,5 +1,4 @@
 use crate::context::Context;
-use crate::renderer::Renderer;
 
 pub struct SurfaceRenderTarget {
     swap_chain: wgpu::SwapChain,
@@ -52,8 +51,16 @@ impl SurfaceRenderTarget {
         }
     }
 
-    pub fn render(&mut self, context: &Context, renderer: &mut Renderer) {
-        let frame = match self.swap_chain.get_current_frame() {
+    pub fn aspect(&self) -> f32 {
+        self.aspect
+    }
+
+    pub fn depth_texture_view(&self) -> &wgpu::TextureView {
+        &self.depth_texture_view
+    }
+
+    pub fn next_frame(&mut self, context: &Context) -> wgpu::SwapChainFrame {
+        match self.swap_chain.get_current_frame() {
             Ok(frame) => frame,
             Err(_) => {
                 *self = SurfaceRenderTarget::new(context);
@@ -62,37 +69,6 @@ impl SurfaceRenderTarget {
                     .get_current_frame()
                     .expect("next frame from swap chain after resize")
             }
-        };
-
-        renderer.set_view(context, self.aspect);
-
-        let mut encoder = context
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            color_attachments: &[wgpu::RenderPassColorAttachment {
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::RED),
-                    store: true,
-                },
-                view: &frame.output.view,
-                resolve_target: None,
-            }],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &self.depth_texture_view,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: false,
-                }),
-                stencil_ops: None,
-            }),
-            ..Default::default()
-        });
-
-        renderer.render(&mut render_pass);
-        drop(render_pass);
-
-        context.queue.submit(std::iter::once(encoder.finish()));
+        }
     }
 }

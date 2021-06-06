@@ -153,25 +153,24 @@ impl LevelMeshBuilder {
             Some(index) => index,
         };
         for tri in triangulation.chunks_exact(3) {
+            fn vertex(
+                point: mint::Point2<f32>,
+                z: f32,
+                index: usize,
+                offset: mint::Vector2<f32>,
+                light: u32,
+            ) -> Vertex {
+                Vertex {
+                    pos: cgmath::point3(point.x, point.y, -z),
+                    uv: (cgmath::point2(point.x, point.y) - cgmath::Vector2::from(offset)) / 8.0,
+                    tex: index as u32,
+                    light,
+                }
+            }
             self.inner.tri(&[
-                Vertex {
-                    pos: cgmath::point3(tri[0].x, tri[0].y, -z),
-                    uv: cgmath::point2(tri[0].x, tri[0].y) / 8.0,
-                    tex: index as u32,
-                    light,
-                },
-                Vertex {
-                    pos: cgmath::point3(tri[1].x, tri[1].y, -z),
-                    uv: cgmath::point2(tri[1].x, tri[1].y) / 8.0,
-                    tex: index as u32,
-                    light,
-                },
-                Vertex {
-                    pos: cgmath::point3(tri[2].x, tri[2].y, -z),
-                    uv: cgmath::point2(tri[2].x, tri[2].y) / 8.0,
-                    tex: index as u32,
-                    light,
-                },
+                vertex(tri[0], z, index, texture.offset, light),
+                vertex(tri[1], z, index, texture.offset, light),
+                vertex(tri[2], z, index, texture.offset, light),
             ])
         }
     }

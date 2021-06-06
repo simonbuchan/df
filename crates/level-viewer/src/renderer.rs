@@ -175,22 +175,8 @@ impl Renderer {
         }
     }
 
-    pub fn set_view(&mut self, context: &Context, aspect: f32) {
-        self.set_transform(context, {
-            let eye = cgmath::point3(246.0, 310.0, 8.0);
-            let proj = cgmath::perspective(cgmath::Deg(45.0), aspect, 1.0, 2000.0);
-            let view = cgmath::Matrix4::look_to_rh(
-                eye,
-                cgmath::vec3(-1.0, -2.0, 0.0),
-                cgmath::Vector3::unit_z(),
-            );
-            proj * view
-        })
-        .unwrap();
-    }
-
     pub fn set_transform(
-        &mut self,
+        &self,
         context: &Context,
         transform: impl Into<cgmath::Matrix4<f32>>,
     ) -> Result<(), wgpu::BufferAsyncError> {
