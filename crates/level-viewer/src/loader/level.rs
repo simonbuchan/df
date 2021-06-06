@@ -1,12 +1,12 @@
-use std::ops::Range;
+use std::collections::BTreeSet;
 
-use formats::common::{Vec2, Vec2f32, Vec2u16};
+use cgmath::MetricSpace;
+
+use formats::lev;
 
 use crate::context::Context;
 use crate::loader::{Loader, LoaderResult};
 use crate::mesh::{Mesh, MeshBuilder, Vertex};
-use cgmath::MetricSpace;
-use std::collections::BTreeSet;
 
 pub struct Level {
     pub textures: Vec<wgpu::Texture>,
@@ -16,7 +16,7 @@ pub struct Level {
 impl Level {
     pub fn load(loader: &mut Loader, name: &str, context: &Context) -> LoaderResult<Self> {
         let file = loader.dark.entry(name)?;
-        let lev = formats::lev::Lev::read(file)?;
+        let lev = lev::Lev::read(file)?;
 
         validate_lev(&lev);
 
@@ -33,10 +33,11 @@ impl Level {
         for sector in &lev.sectors {
             let floor = sector.floor_altitude;
             let ceil = sector.ceiling_altitude;
+
             for wall in &sector.walls {
                 let light = (sector.ambient as i32 + wall.light as i32) as u32;
-                let left = vec2_to_point(sector.vertices[wall.left_vertex]);
-                let right = vec2_to_point(sector.vertices[wall.right_vertex]);
+                let left: cgmath::Point2<f32> = sector.vertices[wall.left_vertex].into();
+                let right: cgmath::Point2<f32> = sector.vertices[wall.right_vertex].into();
                 if let Some(adjoin_sector) = wall.adjoin_sector {
                     let adjoin_sector = &lev.sectors[adjoin_sector];
                     let adjoin_floor = adjoin_sector.floor_altitude;
@@ -55,6 +56,21 @@ impl Level {
                     builder.add_wall(left, right, floor, ceil, &wall.middle_texture, light);
                 }
             }
+
+            match triangulate_sector(&sector) {
+                Err(error) => {
+                    eprintln!("sector {} triangulation error: {}", sector.id, error,);
+                }
+                Ok(triangulation) => {
+                    builder.add_level(floor, &triangulation, &sector.floor_texture, sector.ambient);
+                    builder.add_level(
+                        ceil,
+                        &triangulation,
+                        &sector.ceiling_texture,
+                        sector.ambient,
+                    );
+                }
+            }
         }
 
         let mesh = builder.build(context);
@@ -63,46 +79,13 @@ impl Level {
     }
 }
 
-fn validate_lev(lev: &formats::lev::Lev) {
-    for sector in &lev.sectors {
-        // In order to generate a triangulated floor / ceil, we want every vertex to be touched
-        // by the left and right of one wall each - but unfortunately
-        let mut left = (0..sector.vertices.len()).collect::<BTreeSet<_>>();
-        let mut right = (0..sector.vertices.len()).collect::<BTreeSet<_>>();
-        for wall in &sector.walls {
-            if !left.remove(&wall.left_vertex) {
-                eprintln!(
-                    "sector {} vertex {} already used on left",
-                    sector.id, wall.left_vertex
-                );
-            }
-            if !right.remove(&wall.right_vertex) {
-                eprintln!(
-                    "sector {} vertex {} already used on right",
-                    sector.id, wall.right_vertex
-                );
-            }
-        }
-        if !left.is_empty() && !right.is_empty() {
-            eprintln!(
-                "sector {} has untouched left vertices: {:?}, right vertices: {:?}",
-                sector.id, left, right,
-            );
-        }
-    }
-}
-
-fn vec2_to_point<T>(value: Vec2<T>) -> cgmath::Point2<T> {
-    cgmath::point2(value.x, value.y)
-}
-
 struct LevelMeshBuilder {
     inner: MeshBuilder,
-    texture_sizes: Vec<Vec2u16>,
+    texture_sizes: Vec<cgmath::Vector2<u32>>,
 }
 
 impl LevelMeshBuilder {
-    fn new(texture_sizes: Vec<Vec2u16>) -> Self {
+    fn new(texture_sizes: Vec<cgmath::Vector2<u32>>) -> Self {
         Self {
             texture_sizes,
             inner: MeshBuilder::new(),
@@ -115,11 +98,11 @@ impl LevelMeshBuilder {
         right: cgmath::Point2<f32>,
         floor: f32,
         ceil: f32,
-        texture: &formats::lev::Texture,
+        texture: &lev::Texture,
         light: u32,
     ) {
         if let Some(tex) = texture.index {
-            let texture_size = self.texture_sizes[tex].into_vec2::<f32>();
+            let texture_size = self.texture_sizes[tex].cast::<f32>().unwrap();
             let tex = tex as u32;
 
             // A 64-texel wide texture maps exactly to 8.0 map units,
@@ -158,7 +141,223 @@ impl LevelMeshBuilder {
         }
     }
 
+    fn add_level(
+        &mut self,
+        z: f32,
+        triangulation: &[mint::Point2<f32>],
+        texture: &lev::Texture,
+        light: u32,
+    ) {
+        let index = match texture.index {
+            None => return,
+            Some(index) => index,
+        };
+        for tri in triangulation.chunks_exact(3) {
+            self.inner.tri(&[
+                Vertex {
+                    pos: cgmath::point3(tri[0].x, tri[0].y, -z),
+                    uv: cgmath::point2(tri[0].x, tri[0].y) / 8.0,
+                    tex: index as u32,
+                    light,
+                },
+                Vertex {
+                    pos: cgmath::point3(tri[1].x, tri[1].y, -z),
+                    uv: cgmath::point2(tri[1].x, tri[1].y) / 8.0,
+                    tex: index as u32,
+                    light,
+                },
+                Vertex {
+                    pos: cgmath::point3(tri[2].x, tri[2].y, -z),
+                    uv: cgmath::point2(tri[2].x, tri[2].y) / 8.0,
+                    tex: index as u32,
+                    light,
+                },
+            ])
+        }
+    }
+
     fn build(self, context: &Context) -> Mesh {
         self.inner.build(context)
+    }
+}
+
+fn walls_to_polygons(walls: impl IntoIterator<Item = (usize, usize)>) -> Vec<Vec<usize>> {
+    // open segment of a Polygon
+    struct Contour {
+        indices: Vec<usize>,
+    }
+
+    impl Contour {
+        fn new(a: usize, b: usize) -> Self {
+            Self {
+                indices: vec![a, b],
+            }
+        }
+
+        fn first(&self) -> usize {
+            self.indices[0]
+        }
+
+        fn last(&self) -> usize {
+            self.indices[self.indices.len() - 1]
+        }
+
+        fn add(&mut self, a: usize, b: usize) -> Add {
+            let add = self.add_near(a, b);
+            match add {
+                Add::Unmatched => self.add_near(b, a),
+                add => return add,
+            }
+        }
+
+        fn add_near(&mut self, near: usize, far: usize) -> Add {
+            if near == self.last() {
+                if far == self.first() {
+                    Add::Closed
+                } else {
+                    self.indices.push(far);
+                    Add::Extended
+                }
+            } else if near == self.first() {
+                if far == self.last() {
+                    Add::Closed
+                } else {
+                    self.indices.insert(0, far);
+                    Add::Extended
+                }
+            } else {
+                Add::Unmatched
+            }
+        }
+    }
+
+    enum Add {
+        Unmatched,
+        Closed,
+        Extended,
+    }
+
+    let mut polygons: Vec<Vec<usize>> = Vec::new();
+    let mut contours: Vec<Contour> = Vec::new();
+
+    'wall: for (a, b) in walls {
+        for i in 0..contours.len() {
+            let add = contours[i].add(a, b);
+            match add {
+                Add::Unmatched => {}
+                Add::Extended => continue 'wall,
+                Add::Closed => {
+                    let mut polygon = contours.remove(i).indices;
+                    let min_index = polygon.iter().enumerate().min_by_key(|x| x.1).unwrap().0;
+                    polygon.rotate_left(min_index);
+                    polygons.push(polygon);
+                    continue 'wall;
+                }
+            }
+        }
+
+        contours.push(Contour::new(a, b));
+    }
+
+    polygons.sort_unstable_by_key(|p| p[0]);
+
+    polygons
+}
+
+#[test]
+fn walls_to_polygons_test() {
+    assert_eq!(
+        walls_to_polygons(vec![(0, 1), (1, 2), (2, 0)]),
+        vec![vec![0, 1, 2]],
+    );
+    assert_eq!(
+        walls_to_polygons(vec![(0, 1), (1, 2), (2, 3), (3, 0)]),
+        vec![vec![0, 1, 2, 3]],
+    );
+    assert_eq!(
+        walls_to_polygons(vec![(0, 1), (1, 3), (2, 3), (2, 0)]),
+        vec![vec![0, 1, 3, 2]],
+    );
+    // denormalization
+    assert_eq!(
+        walls_to_polygons(vec![(1, 2), (0, 1), (2, 0)]),
+        vec![vec![0, 1, 2]],
+    );
+    assert_eq!(
+        walls_to_polygons(vec![(1, 2), (1, 0), (2, 0)]),
+        vec![vec![0, 1, 2]],
+    );
+
+    assert_eq!(
+        walls_to_polygons(vec![(1, 2), (0, 1), (3, 4), (2, 0), (6, 4), (3, 6)]),
+        vec![vec![0, 1, 2], vec![3, 4, 6]],
+    );
+}
+
+type TriangulationError = triangulate::TriangulationError<std::convert::Infallible>;
+
+fn triangulate_sector(sector: &lev::Sector) -> Result<Vec<mint::Point2<f32>>, TriangulationError> {
+    let polygons = walls_to_polygons(sector.walls.iter().map(|w| (w.left_vertex, w.right_vertex)));
+
+    #[derive(Copy, Clone, Debug)]
+    struct Vertex(mint::Vector2<f32>);
+
+    impl triangulate::Vertex for Vertex {
+        type Coordinate = f32;
+        fn x(&self) -> f32 {
+            self.0.x
+        }
+        fn y(&self) -> f32 {
+            self.0.y
+        }
+    }
+
+    use triangulate::{
+        builders::{FanToListAdapter, VecListBuilder},
+        IndexWithU16U16, Triangulate,
+    };
+
+    let polygons: Vec<Vec<Vertex>> = polygons
+        .into_iter()
+        .map(|polygon| {
+            polygon
+                .into_iter()
+                .map(|index| Vertex(sector.vertices[index].into()))
+                .collect()
+        })
+        .collect();
+
+    let polygon_list = IndexWithU16U16::new(&polygons);
+    let mut vertices = Vec::new();
+    polygon_list.triangulate::<FanToListAdapter<_, VecListBuilder<_>>>(&mut vertices)?;
+    Ok(vertices.into_iter().map(|vertex| vertex.0.into()).collect())
+}
+
+fn validate_lev(lev: &lev::Lev) {
+    for sector in &lev.sectors {
+        // In order to generate a triangulated floor / ceil, we want every vertex to be touched
+        // by the left and right of one wall each - but unfortunately
+        let mut left = (0..sector.vertices.len()).collect::<BTreeSet<_>>();
+        let mut right = (0..sector.vertices.len()).collect::<BTreeSet<_>>();
+        for wall in &sector.walls {
+            if !left.remove(&wall.left_vertex) {
+                eprintln!(
+                    "sector {} vertex {} already used on left",
+                    sector.id, wall.left_vertex
+                );
+            }
+            if !right.remove(&wall.right_vertex) {
+                eprintln!(
+                    "sector {} vertex {} already used on right",
+                    sector.id, wall.right_vertex
+                );
+            }
+        }
+        if !left.is_empty() && !right.is_empty() {
+            eprintln!(
+                "sector {} has untouched left vertices: {:?}, right vertices: {:?}",
+                sector.id, left, right,
+            );
+        }
     }
 }

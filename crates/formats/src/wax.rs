@@ -17,7 +17,7 @@ pub struct Wax {
 
 pub struct WaxState {
     pub offset: u32,
-    pub world_size: Vec2u32,
+    pub world_size: mint::Vector2<u32>,
     pub frame_rate: u32,
     pub angle_sequence_indices: [usize; 32],
 }

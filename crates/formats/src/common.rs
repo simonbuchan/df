@@ -29,57 +29,25 @@ pub fn read_u32(input: impl io::Read) -> io::Result<u32> {
 pub fn read_vec2<R: io::Read, T>(
     mut input: R,
     read: impl Fn(&mut R) -> io::Result<T>,
-) -> io::Result<Vec2<T>> {
+) -> io::Result<mint::Vector2<T>> {
     let x = read(&mut input)?;
     let y = read(&mut input)?;
-    Ok(Vec2 { x, y })
+    Ok(mint::Vector2 { x, y })
 }
 
-#[derive(Copy, Clone, Default, Debug)]
-pub struct Vec2<T> {
-    pub x: T,
-    pub y: T,
-}
+pub type Vec2<T> = mint::Vector2<T>;
 
 macro_rules! vec2_subtype {
-    ($p: ty, $vec: ident) => {
-        pub type $vec = Vec2<$p>;
-
-        impl $vec {
-            pub fn from_vec2<T: Into<$p>>(value: Vec2<T>) -> Self {
-                Self {
-                    x: value.x.into(),
-                    y: value.y.into(),
-                }
-            }
-
-            pub fn into_vec2<T: From<$p>>(self) -> Vec2<T> {
-                Vec2::<T> {
-                    x: self.x.into(),
-                    y: self.y.into(),
-                }
-            }
-        }
-
-        impl From<$vec> for (usize, usize) {
-            fn from(value: $vec) -> Self {
-                (value.x as usize, value.y as usize)
-            }
-        }
-    };
-    ($p: ty, $vec: ident, $read_vec: ident, $read_p: ident) => {
-        vec2_subtype!($p, $vec);
-
-        pub fn $read_vec(input: impl io::Read) -> io::Result<$vec> {
+    ($p: ty, $read_vec: ident, $read_p: ident) => {
+        pub fn $read_vec(input: impl io::Read) -> io::Result<mint::Vector2<$p>> {
             read_vec2(input, |r| $read_p(r))
         }
     };
 }
 
-vec2_subtype!(u16, Vec2u16, read_vec2_u16, read_u16);
-vec2_subtype!(i32, Vec2i32, read_vec2_i32, read_i32);
-vec2_subtype!(u32, Vec2u32, read_vec2_u32, read_u32);
-vec2_subtype!(f32, Vec2f32);
+vec2_subtype!(u16, read_vec2_u16, read_u16);
+vec2_subtype!(i32, read_vec2_i32, read_i32);
+vec2_subtype!(u32, read_vec2_u32, read_u32);
 
 pub struct Catalog {
     pub entries: Vec<CatalogEntry>,
@@ -94,7 +62,7 @@ pub struct CatalogEntry {
 pub fn rle0(
     mut file: impl io::Read + io::Seek,
     offset: u32,
-    size: Vec2<u32>,
+    size: mint::Vector2<u32>,
 ) -> ReadResult<Vec<u8>> {
     let mut columns = Vec::with_capacity((size.x * size.y) as usize);
     let mut column_offsets = Vec::new();
@@ -133,7 +101,7 @@ pub fn rle0(
 pub fn rle1(
     mut file: impl io::Read + io::Seek,
     offset: u32,
-    size: Vec2<u32>,
+    size: mint::Vector2<u32>,
 ) -> ReadResult<Vec<u8>> {
     let mut columns = Vec::with_capacity((size.x * size.y) as usize);
     let mut column_offsets = Vec::new();
@@ -170,7 +138,7 @@ pub fn rle1(
     Ok(columns)
 }
 
-pub fn columns_to_rows(size: Vec2<u32>, columns: Vec<u8>) -> Vec<u8> {
+pub fn columns_to_rows(size: mint::Vector2<u32>, columns: Vec<u8>) -> Vec<u8> {
     assert_eq!((size.x * size.y) as usize, columns.len());
     // data is in columns, bottom to top, not rows. Transpose it.
     let mut data = Vec::with_capacity(columns.len());

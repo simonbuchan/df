@@ -505,7 +505,7 @@ impl Decoded {
             ui.end_row();
         }
 
-        fn row_vec2<T: ToString>(ui: &mut egui::Ui, label: &str, value: common::Vec2<T>) {
+        fn row_vec2<T: ToString>(ui: &mut egui::Ui, label: &str, value: mint::Vector2<T>) {
             ui.label(label);
             ui.code(value.x.to_string());
             ui.code(value.y.to_string());

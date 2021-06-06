@@ -4,7 +4,6 @@ use std::path::Path;
 
 use wgpu::util::DeviceExt;
 
-use formats::common::Vec2u16;
 pub use level::Level;
 
 use crate::context::Context;
@@ -57,7 +56,7 @@ impl Loader {
         name: &str,
         pal: &formats::pal::Pal,
         context: &Context,
-    ) -> LoaderResult<(Vec2u16, wgpu::Texture)> {
+    ) -> LoaderResult<(cgmath::Vector2<u32>, wgpu::Texture)> {
         let file = self.textures.entry(name)?;
 
         let bm = formats::bm::Bm::read(file)?;
@@ -83,7 +82,7 @@ impl Loader {
             &texels,
         );
 
-        Ok((bm.size, texture))
+        Ok((cgmath::Vector2::from(bm.size).cast().unwrap(), texture))
     }
 
     pub fn load_bm_or_default(
@@ -91,10 +90,10 @@ impl Loader {
         name: &str,
         pal: &formats::pal::Pal,
         context: &Context,
-    ) -> (Vec2u16, wgpu::Texture) {
+    ) -> (cgmath::Vector2<u32>, wgpu::Texture) {
         self.load_bm(name, pal, context).unwrap_or_else(|_| {
             (
-                Vec2u16 { x: 1, y: 1 },
+                cgmath::vec2(1, 1),
                 context.device.create_texture_with_data(
                     &context.queue,
                     &Loader::texture_descriptor("default_texture", 1, 1),

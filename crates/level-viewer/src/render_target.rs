@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use crate::context::Context;
 use crate::renderer::Renderer;
 

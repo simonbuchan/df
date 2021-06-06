@@ -7,7 +7,6 @@ use nom::multi::{many0, many1, many_m_n};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::Parser;
 
-use crate::common::*;
 use nom::branch::alt;
 use std::str::FromStr;
 
@@ -62,6 +61,16 @@ fn float<T: FromStr>(input: &str) -> NomResult<T> {
     )(input)
 }
 
+fn vector2<T: FromStr>(
+    read: impl Fn(&str) -> NomResult<T>,
+) -> impl Fn(&str) -> NomResult<mint::Vector2<T>> {
+    move |input| {
+        let (input, x) = read(input)?;
+        let (input, y) = read(input)?;
+        Ok((input, mint::Vector2 { x, y }))
+    }
+}
+
 // handle the TAG <ws> DATA <eol> format used everywhere
 fn entry<'a, V>(
     tag_name: &'static str,
@@ -90,7 +99,7 @@ fn entry_inline<'a, V>(
 
 pub struct Lev {
     pub palette_name: String,
-    pub parallax: Vec2f32,
+    pub parallax: mint::Vector2<f32>,
     pub texture_names: Vec<String>,
     pub sectors: Vec<Sector>,
 }
@@ -117,10 +126,7 @@ impl Lev {
         let (input, _name) = entry("LEVELNAME", is_not_eol)(input)?;
         let (input, palette_name) = entry("PALETTE", word)(input)?;
         let (input, _music) = entry("MUSIC", is_not_eol)(input)?;
-        let (input, parallax) = entry(
-            "PARALLAX",
-            map(pair(float, float), |(x, y)| Vec2f32 { x, y }),
-        )(input)?;
+        let (input, parallax) = entry("PARALLAX", vector2(float))(input)?;
         let (input, _texture_count) = entry("TEXTURES", is_not_eol)(input)?;
         let (input, texture_names) = many0(entry("TEXTURE:", word))(input)?;
 
@@ -152,7 +158,7 @@ pub struct Sector {
     pub second_altitude: f32,
     pub flags: (u32, u32, u32),
     pub layer: i32,
-    pub vertices: Vec<Vec2f32>,
+    pub vertices: Vec<mint::Point2<f32>>,
     pub walls: Vec<Wall>,
 }
 
@@ -176,7 +182,7 @@ impl Sector {
             terminated(
                 map(
                     pair(entry_inline("X:", float), entry_inline("Z:", float)),
-                    |(x, y)| Vec2f32 { x, y },
+                    |(x, y)| mint::Point2 { x, y },
                 ),
                 eol,
             ),
@@ -256,7 +262,7 @@ impl Wall {
 
 pub struct Texture {
     pub index: Option<usize>,
-    pub offset: Vec2f32,
+    pub offset: mint::Vector2<f32>,
 }
 
 impl Texture {
@@ -268,12 +274,7 @@ impl Texture {
 
     fn parse_no_flag(input: &str) -> NomResult<Self> {
         let (input, index) = opt_uint(input)?;
-        let (input, x) = float(input)?;
-        let (input, y) = float(input)?;
-        let result = Self {
-            index,
-            offset: Vec2f32 { x, y },
-        };
-        Ok((input, result))
+        let (input, offset) = vector2(float)(input)?;
+        Ok((input, Self { index, offset }))
     }
 }

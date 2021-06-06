@@ -1,9 +1,6 @@
 use winit::event_loop::EventLoop;
 use winit::window::{Window, WindowBuilder};
 
-use crate::render_target::SurfaceRenderTarget;
-use crate::renderer::Renderer;
-
 pub struct Context {
     pub window: Window,
     pub instance: wgpu::Instance,

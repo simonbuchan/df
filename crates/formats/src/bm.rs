@@ -9,8 +9,8 @@ pub enum Compression {
 }
 
 pub struct Bm {
-    pub size: Vec2u16,
-    pub idem_size: Vec2u16,
+    pub size: mint::Vector2<u16>,
+    pub idem_size: mint::Vector2<u16>,
     pub flags: u8,
     pub log_size_y: bool,
     pub compression: Compression,
@@ -38,7 +38,10 @@ impl Bm {
         file.seek(io::SeekFrom::Current(12))?;
 
         if size.x != 1 || size.y == 1 {
-            let size_u32 = size.into_vec2::<u32>();
+            let size_u32 = mint::Vector2 {
+                x: size.x as u32,
+                y: size.y as u32,
+            };
             let columns = match compression {
                 Compression::None => {
                     let mut columns = vec![0u8; size.x as usize * size.y as usize];
@@ -68,7 +71,7 @@ impl Bm {
         } else {
             eprintln!("multiple unimplemented");
             Ok(Bm {
-                size: Vec2u16 { x: 1, y: 1 },
+                size: mint::Vector2 { x: 1, y: 1 },
                 idem_size,
                 flags,
                 log_size_y,

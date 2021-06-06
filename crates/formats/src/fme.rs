@@ -18,7 +18,7 @@ impl Fme {
 
 #[derive(Copy, Clone)]
 pub struct Frame {
-    pub offset: Vec2i32,
+    pub offset: mint::Vector2<i32>,
     pub flip: bool,
 }
 
@@ -31,7 +31,7 @@ impl Frame {
 }
 
 pub struct Cell {
-    pub size: Vec2u32,
+    pub size: mint::Vector2<u32>,
     pub data: Vec<u8>,
 }
 
