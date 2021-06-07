@@ -45,6 +45,22 @@ impl Loader {
         })
     }
 
+    pub fn level_names(&self) -> Vec<String> {
+        // parse JEDI.LVL instead?
+        self.dark
+            .catalog
+            .entries
+            .iter()
+            .filter_map(|entry| {
+                if entry.name.ends_with(".LEV") {
+                    Some(entry.name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     pub fn load_pal(&mut self, name: &str) -> LoaderResult<formats::pal::Pal> {
         let file = self.dark.entry(name)?;
         let pal = formats::pal::Pal::read(file)?;

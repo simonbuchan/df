@@ -2,9 +2,9 @@ use crate::context::Context;
 
 pub struct SurfaceRenderTarget {
     swap_chain: wgpu::SwapChain,
-    depth_texture: wgpu::Texture,
+    _depth_texture: wgpu::Texture,
     depth_texture_view: wgpu::TextureView,
-    aspect: f32,
+    size: cgmath::Vector2<f32>,
 }
 
 impl SurfaceRenderTarget {
@@ -41,18 +41,22 @@ impl SurfaceRenderTarget {
             ..Default::default()
         });
 
-        let aspect = width as f32 / height as f32;
+        let size = cgmath::Vector2::new(width as f32, height as f32);
 
         Self {
             swap_chain,
-            depth_texture,
+            _depth_texture: depth_texture,
             depth_texture_view,
-            aspect,
+            size,
         }
     }
 
+    pub fn size(&self) -> cgmath::Vector2<f32> {
+        self.size
+    }
+
     pub fn aspect(&self) -> f32 {
-        self.aspect
+        self.size.x / self.size.y
     }
 
     pub fn depth_texture_view(&self) -> &wgpu::TextureView {

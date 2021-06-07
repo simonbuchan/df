@@ -20,10 +20,15 @@ fn main() {
     let mut loader =
         loader::Loader::open(r"C:\Games\Steam\steamapps\common\Dark Forces\Game\").unwrap();
 
+    let level_names = loader.level_names();
+    let mut level_index = 0;
+
     let event_loop = EventLoop::new();
     let context = pollster::block_on(Context::new(&event_loop));
 
-    let level = loader.load_lev("SECBASE.LEV", &context).unwrap();
+    let level = loader
+        .load_lev(&level_names[level_index], &context)
+        .unwrap();
 
     let mut renderer = Renderer::new(&context, level);
 
@@ -40,7 +45,7 @@ fn main() {
         use winit::event::{DeviceEvent, Event, MouseButton, VirtualKeyCode, WindowEvent};
         use winit::event_loop::ControlFlow;
 
-        let mut now = std::time::Instant::now();
+        let now = std::time::Instant::now();
         let delta_time = now - last_update;
         last_update = now;
 
@@ -54,17 +59,26 @@ fn main() {
                     ..
                 } => {
                     grab = true;
-                    context.window.set_cursor_grab(true);
-                    context.window.set_cursor_visible(false);
+                    let _ = context.window.set_cursor_grab(true);
+                    let _ = context.window.set_cursor_visible(false);
                 }
-                WindowEvent::KeyboardInput { input, .. } => {
-                    if input.virtual_keycode == Some(VirtualKeyCode::Escape) {
+                WindowEvent::KeyboardInput { input, .. } => match input.virtual_keycode {
+                    Some(VirtualKeyCode::Escape) => {
                         grab = false;
-                        context.window.set_cursor_grab(false);
-                        context.window.set_cursor_visible(true);
+                        let _ = context.window.set_cursor_grab(false);
+                        let _ = context.window.set_cursor_visible(true);
                     }
-                    input_state.key(input);
-                }
+                    Some(VirtualKeyCode::Tab) => {
+                        level_index = (level_index + 1) % level_names.len();
+                        let level = loader
+                            .load_lev(&level_names[level_index], &context)
+                            .unwrap();
+                        renderer = Renderer::new(&context, level);
+                    }
+                    _ => {
+                        input_state.key(input);
+                    }
+                },
                 _ => {}
             },
             Event::DeviceEvent {
@@ -190,4 +204,10 @@ pub(crate) fn transmute_slice<T: Copy, U: Copy>(src: &[T]) -> &[U] {
     let ptr = src.as_ptr();
     // Safety: src and dst contents are Copy, we have checked sizes above
     unsafe { std::slice::from_raw_parts(ptr.cast(), len) }
+}
+
+pub(crate) fn transmute_as_bytes<T: Copy>(src: &T) -> &[u8] {
+    let size = std::mem::size_of_val(src);
+    // Safety: src and dst contents are Copy
+    unsafe { std::slice::from_raw_parts(src as *const T as *const u8, size) }
 }

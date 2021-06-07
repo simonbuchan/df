@@ -63,6 +63,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/seidel-poly-triangulation/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/cgmath-5c420e5948ae9b75/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/getrandom-6eda46d14da4192d/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/level-geometry/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

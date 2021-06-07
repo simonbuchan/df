@@ -335,7 +335,12 @@ struct DecodedImage {
 }
 
 impl DecodedImage {
-    fn load(fw: &mut eframe::epi::Frame, data: &[u8], size: Vec2u32, pal: &pal::Pal) -> Self {
+    fn load(
+        fw: &mut eframe::epi::Frame,
+        data: &[u8],
+        size: mint::Vector2<u32>,
+        pal: &pal::Pal,
+    ) -> Self {
         let colors = data
             .iter()
             .map(|&c| {
@@ -350,7 +355,7 @@ impl DecodedImage {
 
         let texture_id = fw
             .tex_allocator()
-            .alloc_srgba_premultiplied(size.into(), &colors);
+            .alloc_srgba_premultiplied((size.x as usize, size.y as usize), &colors);
 
         let size = egui::Vec2::new(size.x as f32, size.y as f32) * 4.0;
 
@@ -458,7 +463,11 @@ impl Decoded {
             // Images
             Some("BM") => {
                 let bm = bm::Bm::read(&mut io::Cursor::new(data))?;
-                let image = DecodedImage::load(fw, &bm.data, bm.size.into_vec2(), pal);
+                let size = mint::Vector2 {
+                    x: bm.size.x as u32,
+                    y: bm.size.y as u32,
+                };
+                let image = DecodedImage::load(fw, &bm.data, size, pal);
                 Self::Bm { bm, image }
             }
             Some("PAL") => {
@@ -670,17 +679,21 @@ struct DecodedLev {
 impl DecodedLev {
     fn new(lev: lev::Lev) -> DecodedLev {
         let mut bounds = egui::Rect::NOTHING;
-        let mut layers = std::collections::BTreeSet::new();
+        let mut layers = Vec::new();
         for sector in &lev.sectors {
-            layers.insert(sector.layer);
-            for Vec2f32 { x, y } in &sector.vertices {
+            if let Err(index) = layers.binary_search(&sector.layer) {
+                layers.insert(index, sector.layer);
+            }
+
+            for mint::Point2 { x, y } in &sector.vertices {
                 bounds.extend_with(egui::Pos2::new(*x, *y));
             }
         }
+
         Self {
             lev,
             bounds,
-            layers: layers.into_iter().collect(),
+            layers,
             scroll: egui::Vec2::ZERO,
             zoom: 0.0,
             layer_index: 0,
@@ -691,73 +704,7 @@ impl DecodedLev {
     fn show(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             self.show_map(ui);
-
-            ui.vertical_centered_justified(|ui| {
-                ui.add(
-                    egui::Slider::new(&mut self.sector_index, 0..=self.lev.sectors.len() - 1)
-                        .text("sector"),
-                );
-                let sector = &self.lev.sectors[self.sector_index];
-                egui::Grid::new("head").show(ui, |ui| {
-                    ui.label("id");
-                    ui.code(format!("{}", sector.id));
-                    ui.end_row();
-                    if let Some(ref name) = sector.name {
-                        ui.label("name");
-                        ui.code(name);
-                        ui.end_row();
-                    }
-                    ui.label("ambient");
-                    ui.code(format!("{}", sector.ambient));
-                    ui.end_row();
-                });
-
-                egui::containers::ScrollArea::auto_sized().show(ui, |ui| {
-                    for (ix, wall) in sector.walls.iter().enumerate() {
-                        ui.group(|ui| {
-                            egui::Grid::new(ix).show(ui, |ui| {
-                                ui.label("Wall");
-                                ui.code(format!("{}", ix));
-                                ui.end_row();
-                                ui.label("left");
-                                ui.code(format!("{}", wall.left_vertex));
-                                let left = sector.vertices[wall.left_vertex];
-                                ui.code(format!("{}", left.x));
-                                ui.code(format!("{}", left.y));
-                                ui.end_row();
-                                ui.label("right");
-                                ui.code(format!("{}", wall.right_vertex));
-                                let right = sector.vertices[wall.right_vertex];
-                                ui.code(format!("{}", right.x));
-                                ui.code(format!("{}", right.y));
-                                ui.end_row();
-                                ui.label("light");
-                                ui.code(format!("{}", wall.light));
-                                ui.end_row();
-                                ui.label("textures");
-                                ui.end_row();
-                                fn tex_row(
-                                    ui: &mut egui::Ui,
-                                    name: &str,
-                                    lev: &lev::Lev,
-                                    texture: &lev::Texture,
-                                ) {
-                                    if let Some(tex) = texture.index {
-                                        ui.label(name);
-                                        ui.code(&lev.texture_names[tex]);
-                                        ui.code(format!("{}", texture.offset.x));
-                                        ui.code(format!("{}", texture.offset.y));
-                                        ui.end_row();
-                                    }
-                                }
-                                tex_row(ui, "mid", &self.lev, &wall.middle_texture);
-                                tex_row(ui, "top", &self.lev, &wall.top_texture);
-                                tex_row(ui, "bot", &self.lev, &wall.bottom_texture);
-                            });
-                        });
-                    }
-                });
-            });
+            self.show_sector(ui);
         });
     }
 
@@ -820,12 +767,17 @@ impl DecodedLev {
             y: (offset.y - pos.y) / scale,
         });
 
-        let mut hover_sectors = Vec::new();
+        let mut hover_sector_indices = Vec::new();
 
-        for sector in &self.lev.sectors {
+        fn draw_sector(
+            painter: &egui::Painter,
+            sector: &lev::Sector,
+            offset: egui::Pos2,
+            scale: f32,
+            edge_width: f32,
+            active: bool,
+        ) {
             // draw walls (including walk walls, e.g. cliffs, steps, windows, ...)
-            let edge_width = if sector.layer == layer { 1.0 } else { 0.2 };
-
             for wall in &sector.walls {
                 let left = sector.vertices[wall.left_vertex];
                 let right = sector.vertices[wall.right_vertex];
@@ -833,7 +785,9 @@ impl DecodedLev {
                 let left = offset + egui::Vec2::new(left.x, -left.y) * scale;
                 let right = offset + egui::Vec2::new(right.x, -right.y) * scale;
 
-                let stroke_color = if wall.walk_sector.is_none() {
+                let stroke_color = if active {
+                    egui::Color32::YELLOW
+                } else if wall.walk_sector.is_none() {
                     egui::Color32::RED
                 } else {
                     egui::Color32::LIGHT_GRAY
@@ -842,9 +796,18 @@ impl DecodedLev {
 
                 painter.line_segment([left, right], stroke);
             }
+        }
+
+        for (ix, sector) in self.lev.sectors.iter().enumerate() {
+            // current sector should be drawn last
+            if ix != self.sector_index {
+                let edge_width = if sector.layer == layer { 1.0 } else { 0.2 };
+                draw_sector(&painter, sector, offset, scale, edge_width, false);
+            }
 
             // Test if mouse is hovering this sector using the ray-cast approach from:
             // http://alienryderflex.com/polygon/
+            // Fails with unclosed polygons, like sector 3 on SECBASE.LEV
             if let Some(pos) = hover_map_pos {
                 let mut inside = false;
                 for wall in &sector.walls {
@@ -859,10 +822,19 @@ impl DecodedLev {
                 }
 
                 if inside {
-                    hover_sectors.push(sector);
+                    hover_sector_indices.push(ix);
                 }
             }
         }
+
+        draw_sector(
+            &painter,
+            &self.lev.sectors[self.sector_index],
+            offset,
+            scale,
+            1.0,
+            true,
+        );
 
         let origin_stroke = egui::Stroke::new(1.0, egui::Color32::LIGHT_BLUE);
         painter.line_segment(
@@ -886,9 +858,10 @@ impl DecodedLev {
                 egui::Align2::LEFT_TOP,
                 format_args!("{:.2}, {:.2} / layer {}", pos.x, pos.y, layer),
                 egui::TextStyle::Body,
-                egui::Color32::YELLOW,
+                egui::Color32::WHITE,
             );
-            for sector in &hover_sectors {
+            for &sector_index in &hover_sector_indices {
+                let sector = &self.lev.sectors[sector_index];
                 text_bounds = painter.text(
                     text_bounds.left_bottom(),
                     egui::Align2::LEFT_TOP,
@@ -900,31 +873,109 @@ impl DecodedLev {
                         sector.name.as_deref().unwrap_or_default(),
                     ),
                     egui::TextStyle::Body,
-                    if layer == sector.layer {
-                        egui::Color32::WHITE
-                    } else {
+                    if self.sector_index == sector_index {
+                        egui::Color32::YELLOW
+                    } else if layer == sector.layer {
                         egui::Color32::LIGHT_GRAY
+                    } else {
+                        egui::Color32::GRAY
                     },
                 );
             }
 
-            if clicked && !hover_sectors.is_empty() {
+            if clicked && !hover_sector_indices.is_empty() {
                 // Select the next (or first) hovered sector on click.
-                // *should* be the case that lev.sectors[x].id == x, but not actually guaranteed.
-                let last_hover_index = hover_sectors
+                let last_hover_index = hover_sector_indices
                     .iter()
-                    .position(|s| s.id == self.lev.sectors[self.sector_index].id);
+                    .position(|&index| index == self.sector_index);
                 let next_hover_index = match last_hover_index {
                     None => 0,
-                    Some(x) => (x + 1) % hover_sectors.len(),
+                    Some(x) => (x + 1) % hover_sector_indices.len(),
                 };
-                let next_sector_id = hover_sectors[next_hover_index].id;
-                if let Some(next_sector_index) =
-                    self.lev.sectors.iter().position(|s| s.id == next_sector_id)
-                {
-                    self.sector_index = next_sector_index;
-                }
+                let next_sector_index = hover_sector_indices[next_hover_index];
+                self.sector_index = next_sector_index;
+                let next_layer = self.lev.sectors[next_sector_index].layer;
+                self.layer_index = self.layers.iter().position(|&l| l == next_layer).unwrap();
             }
         }
+    }
+
+    fn show_sector(&mut self, ui: &mut egui::Ui) {
+        ui.vertical_centered_justified(|ui| {
+            ui.add(
+                egui::Slider::new(&mut self.sector_index, 0..=self.lev.sectors.len() - 1)
+                    .text("sector"),
+            );
+            let sector = &self.lev.sectors[self.sector_index];
+            egui::Grid::new("head").show(ui, |ui| {
+                ui.label("id");
+                ui.code(format!("{}", sector.id));
+                ui.end_row();
+                if let Some(ref name) = sector.name {
+                    ui.label("name");
+                    ui.code(name);
+                    ui.end_row();
+                }
+                ui.label("ambient");
+                ui.code(format!("{}", sector.ambient));
+                ui.end_row();
+                ui.label("flags");
+                ui.code(format!("{:x}", sector.flags.0));
+                ui.code(format!("{:x}", sector.flags.1));
+                ui.code(format!("{:x}", sector.flags.2));
+                ui.end_row();
+            });
+
+            egui::containers::ScrollArea::auto_sized().show(ui, |ui| {
+                for (ix, wall) in sector.walls.iter().enumerate() {
+                    ui.group(|ui| {
+                        egui::Grid::new(ix).show(ui, |ui| {
+                            ui.label("Wall");
+                            ui.code(format!("{}", ix));
+                            ui.end_row();
+                            ui.label("left");
+                            ui.code(format!("{}", wall.left_vertex));
+                            let left = sector.vertices[wall.left_vertex];
+                            ui.code(format!("{}", left.x));
+                            ui.code(format!("{}", left.y));
+                            ui.end_row();
+                            ui.label("right");
+                            ui.code(format!("{}", wall.right_vertex));
+                            let right = sector.vertices[wall.right_vertex];
+                            ui.code(format!("{}", right.x));
+                            ui.code(format!("{}", right.y));
+                            ui.end_row();
+                            ui.label("light");
+                            ui.code(format!("{}", wall.light));
+                            ui.end_row();
+                            ui.label("textures");
+                            ui.end_row();
+                            fn tex_row(
+                                ui: &mut egui::Ui,
+                                name: &str,
+                                lev: &lev::Lev,
+                                texture: &lev::Texture,
+                            ) {
+                                if let Some(tex) = texture.index {
+                                    ui.label(name);
+                                    ui.code(&lev.texture_names[tex]);
+                                    ui.code(format!("{}", texture.offset.x));
+                                    ui.code(format!("{}", texture.offset.y));
+                                    ui.end_row();
+                                }
+                            }
+                            tex_row(ui, "mid", &self.lev, &wall.middle_texture);
+                            tex_row(ui, "top", &self.lev, &wall.top_texture);
+                            tex_row(ui, "bot", &self.lev, &wall.bottom_texture);
+                            ui.label("flags");
+                            ui.code(format!("{:x}", wall.flags.0));
+                            ui.code(format!("{:x}", wall.flags.1));
+                            ui.code(format!("{:x}", wall.flags.2));
+                            ui.end_row();
+                        });
+                    });
+                }
+            });
+        });
     }
 }

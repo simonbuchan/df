@@ -549,6 +549,7 @@ name = "df-explorer"
 version = "0.1.0"
 dependencies = [
  "df-formats",
+ "df-level-geometry",
  "eframe",
 ]
 
@@ -563,14 +564,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "df-level-geometry"
+version = "0.1.0"
+dependencies = [
+ "df-formats",
+ "mint",
+ "triangulate",
+]
+
+[[package]]
 name = "df-level-viewer"
 version = "0.1.0"
 dependencies = [
  "cgmath",
  "df-formats",
+ "df-level-geometry",
  "mint",
  "pollster",
- "triangulate",
  "wgpu",
  "wgpu-subscriber",
  "winit 0.25.0",

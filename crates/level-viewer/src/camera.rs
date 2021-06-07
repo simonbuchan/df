@@ -1,6 +1,6 @@
 use crate::context::Context;
 use crate::render_target::SurfaceRenderTarget;
-use crate::renderer::Renderer;
+use crate::renderer::{LocalsBufferData, Renderer};
 
 pub struct Camera {
     pub load: wgpu::LoadOp<wgpu::Color>,
@@ -39,7 +39,17 @@ impl Camera {
         let frame = target.next_frame(context);
 
         renderer
-            .set_transform(context, self.matrix(target.aspect()))
+            .set_locals(
+                context,
+                LocalsBufferData {
+                    view: self.matrix(target.aspect()),
+                    viewport_size: target.size(),
+                    sky: cgmath::Vector2::new(
+                        (self.fov * target.aspect()).0,
+                        self.dir.0 / std::f32::consts::TAU,
+                    ),
+                },
+            )
             .unwrap();
 
         let mut encoder = context

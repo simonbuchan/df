@@ -1,5 +1,5 @@
 [package]
-name = "df-explorer"
+name = "df-level-geometry"
 version = "0.1.0"
 authors = ["Simon Buchan <simon.buchan@skilitics.com>"]
 edition = "2018"
@@ -8,6 +8,6 @@ edition = "2018"
 
 [dependencies]
 formats = { package = "df-formats", path = "../formats" }
-level-geometry = { package = "df-level-geometry", path = "../level-geometry" }
 
-eframe = "0.12"
+triangulate = "0.1"
+mint = "0.5"

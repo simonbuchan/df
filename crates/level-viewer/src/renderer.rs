@@ -1,9 +1,15 @@
 use std::num::NonZeroU32;
 
-use cgmath::prelude::*;
-
 use crate::context::Context;
 use crate::mesh::Vertex;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct LocalsBufferData {
+    pub view: cgmath::Matrix4<f32>,
+    pub viewport_size: cgmath::Vector2<f32>,
+    pub sky: cgmath::Vector2<f32>, // angular size, offset
+}
 
 pub struct Renderer {
     pipeline: wgpu::RenderPipeline,
@@ -141,7 +147,7 @@ impl Renderer {
 
         let locals_buffer = context.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: 64,
+            size: std::mem::size_of::<LocalsBufferData>() as wgpu::BufferAddress,
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::MAP_WRITE,
             mapped_at_creation: false,
         });
@@ -175,31 +181,19 @@ impl Renderer {
         }
     }
 
-    pub fn set_transform(
+    pub fn set_locals(
         &self,
         context: &Context,
-        transform: impl Into<cgmath::Matrix4<f32>>,
+        data: LocalsBufferData,
     ) -> Result<(), wgpu::BufferAsyncError> {
-        fn imp(
-            buffer: &wgpu::Buffer,
-            context: &Context,
-            transform: &[f32; 16],
-        ) -> Result<(), wgpu::BufferAsyncError> {
-            let slice = buffer.slice(..);
-            let fut = slice.map_async(wgpu::MapMode::Write);
-            crate::poll_device(&context, fut)?;
-            slice
-                .get_mapped_range_mut()
-                .copy_from_slice(crate::transmute_slice(transform));
-            buffer.unmap();
-            Ok(())
-        }
-
-        imp(
-            &self.locals_buffer,
-            context,
-            transform.into().transpose().as_ref(),
-        )
+        let slice = self.locals_buffer.slice(..);
+        let fut = slice.map_async(wgpu::MapMode::Write);
+        crate::poll_device(&context, fut)?;
+        slice
+            .get_mapped_range_mut()
+            .copy_from_slice(crate::transmute_as_bytes(&data));
+        self.locals_buffer.unmap();
+        Ok(())
     }
 
     pub fn render<'a>(&'a mut self, render_pass: &mut wgpu::RenderPass<'a>) {

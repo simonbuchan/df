@@ -8,11 +8,11 @@ edition = "2018"
 
 [dependencies]
 formats = { package = "df-formats", path = "../formats" }
+level-geometry = { package = "df-level-geometry", path = "../level-geometry" }
 
 cgmath = { version = "0.18", features = ["mint"] }
 mint = "0.5"
 pollster = "0.2"
-triangulate = "0.1"
 winit = "0.25"
 wgpu = "0.8"
 wgpu-subscriber = "0.1"
