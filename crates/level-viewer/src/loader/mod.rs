@@ -136,6 +136,7 @@ impl Loader {
     }
 
     pub fn load_lev(&mut self, name: &str, context: &Context) -> LoaderResult<level::Level> {
+        println!("loading: {}", name);
         level::Level::load(self, name, context)
     }
 }

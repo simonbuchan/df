@@ -25,7 +25,7 @@ impl Context {
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::LowPower,
+                power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: Some(&surface),
             })
             .await
@@ -40,7 +40,11 @@ impl Context {
                         | wgpu::Features::SAMPLED_TEXTURE_ARRAY_NON_UNIFORM_INDEXING
                         | wgpu::Features::UNSIZED_BINDING_ARRAY,
                     limits: wgpu::Limits {
-                        // Jabba's ship has 300+ textures(!), but my RTX 2070S claims 1M, so...
+                        // Jabba's ship has 300+ textures(!), but Intel UHD integrated
+                        // graphics only supports 200 bound textures. We'll need a smarter
+                        // renderer to support that, but for now require a reasonable amount.
+                        // Seems 8k is what pretty much any dGPU will provide:
+                        // https://vulkan.gpuinfo.org/displaydevicelimit.php?name=maxPerStageDescriptorSampledImages&platform=windows
                         max_sampled_textures_per_shader_stage: 1024,
                         ..Default::default()
                     },

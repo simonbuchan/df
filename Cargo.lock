@@ -581,6 +581,7 @@ dependencies = [
  "df-level-geometry",
  "mint",
  "pollster",
+ "registry",
  "wgpu",
  "wgpu-subscriber",
  "winit 0.25.0",
@@ -1943,6 +1944,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f497285884f3fcff424ffc933e56d7cbca511def0c9831a7f9b5f6153e3cc89b"
 
 [[package]]
+name = "registry"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ef1f74c1c34a4f1149cc7334c5aad9fcbb8984f0c011cc4708757dddae2c598"
+dependencies = [
+ "bitflags",
+ "log",
+ "thiserror",
+ "utfx",
+ "winapi 0.3.9",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2291,6 +2305,12 @@ name = "unicode-xid"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ccb82d61f80a663efe1f787a51b16b5a51e3314d6ac365b08639f52387b33f3"
+
+[[package]]
+name = "utfx"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "133bf74f01486773317ddfcde8e2e20d2933cc3b68ab797e5d718bef996a81de"
 
 [[package]]
 name = "version_check"

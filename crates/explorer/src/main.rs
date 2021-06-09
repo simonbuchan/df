@@ -84,7 +84,8 @@ impl GobPalette {
     }
 }
 
-const BASE_PATH: &str = r"C:\Games\Steam\steamapps\common\Dark Forces\Game\";
+// const BASE_PATH: &str = r"C:\Games\Steam\steamapps\common\Dark Forces\Game\";
+const BASE_PATH: &str = r"C:\Program Files (x86)\Steam\steamapps\common\Dark Forces\Game\";
 
 impl App {
     fn new() -> ReadResult<Self> {

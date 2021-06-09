@@ -17,10 +17,21 @@ mod renderer;
 fn main() {
     wgpu_subscriber::initialize_default_subscriber(None);
 
-    let mut loader =
-        loader::Loader::open(r"C:\Games\Steam\steamapps\common\Dark Forces\Game\").unwrap();
+    let steam_path = registry::Hive::CurrentUser.open(r"Software\Valve\Steam", registry::Security::Read)
+        .expect("want a Steam installation")
+        .value("SteamPath")
+        .unwrap();
+    let steam_path = match steam_path {
+        registry::Data::String(steam_path) => steam_path.to_os_string(),
+        _ => panic!("unexpected type: {:?}", steam_path),
+    };
+
+    let game_path = std::path::Path::new(&steam_path).join(r"steamapps\common\Dark Forces\Game");
+
+    let mut loader = loader::Loader::open(game_path).unwrap();
 
     let level_names = loader.level_names();
+    dbg!(&level_names);
     let mut level_index = 0;
 
     let event_loop = EventLoop::new();
@@ -42,12 +53,8 @@ fn main() {
     let mut last_update = std::time::Instant::now();
 
     event_loop.run(move |event, _, control_flow| {
-        use winit::event::{DeviceEvent, Event, MouseButton, VirtualKeyCode, WindowEvent};
+        use winit::event::{DeviceEvent, ElementState, Event, MouseButton, VirtualKeyCode, WindowEvent};
         use winit::event_loop::ControlFlow;
-
-        let now = std::time::Instant::now();
-        let delta_time = now - last_update;
-        last_update = now;
 
         match event {
             Event::WindowEvent { event, .. } => match event {
@@ -62,23 +69,26 @@ fn main() {
                     let _ = context.window.set_cursor_grab(true);
                     let _ = context.window.set_cursor_visible(false);
                 }
-                WindowEvent::KeyboardInput { input, .. } => match input.virtual_keycode {
-                    Some(VirtualKeyCode::Escape) => {
-                        grab = false;
-                        let _ = context.window.set_cursor_grab(false);
-                        let _ = context.window.set_cursor_visible(true);
+                WindowEvent::KeyboardInput { input, .. } => {
+                    if input.state == ElementState::Pressed {
+                        match input.virtual_keycode {
+                            Some(VirtualKeyCode::Escape) => {
+                                grab = false;
+                                let _ = context.window.set_cursor_grab(false);
+                                let _ = context.window.set_cursor_visible(true);
+                            }
+                            Some(VirtualKeyCode::Tab) => {
+                                level_index = (level_index + 1) % level_names.len();
+                                let level = loader
+                                    .load_lev(&level_names[level_index], &context)
+                                    .unwrap();
+                                renderer = Renderer::new(&context, level);
+                            }
+                            _ => {}
+                        }
                     }
-                    Some(VirtualKeyCode::Tab) => {
-                        level_index = (level_index + 1) % level_names.len();
-                        let level = loader
-                            .load_lev(&level_names[level_index], &context)
-                            .unwrap();
-                        renderer = Renderer::new(&context, level);
-                    }
-                    _ => {
-                        input_state.key(input);
-                    }
-                },
+                    input_state.key(input);
+                }
                 _ => {}
             },
             Event::DeviceEvent {
@@ -94,7 +104,10 @@ fn main() {
                 }
             }
             Event::MainEventsCleared => {
-                const UNITS_PER_SECOND: f32 = 10000.0;
+                let now = std::time::Instant::now();
+                let delta_time = now - last_update;
+                last_update = now;
+                const UNITS_PER_SECOND: f32 = 150.0;
                 camera.eye +=
                     input_state.delta(camera.dir) * UNITS_PER_SECOND * delta_time.as_secs_f32();
 
