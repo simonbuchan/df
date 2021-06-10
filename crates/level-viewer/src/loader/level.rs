@@ -57,31 +57,25 @@ impl Level {
                 }
             }
 
-            match triangulate_sector(&sector) {
-                Err(error) => {
-                    eprintln!("sector {} triangulation error: {}", sector.id, error,);
-                }
-                Ok(triangulation) => {
-                    builder.add_level(
-                        floor,
-                        &triangulation,
-                        &sector.floor_texture,
-                        if sector.flags.0 & 0x80 != 0 {
-                            0x1_0000
-                        } else {
-                            0
-                        },
-                        sector.ambient,
-                    );
-                    builder.add_level(
-                        ceil,
-                        &triangulation,
-                        &sector.ceiling_texture,
-                        if sector.flags.0 & 1 != 0 { 0x1_0000 } else { 0 },
-                        sector.ambient,
-                    );
-                }
-            }
+            let triangulation = triangulate_sector(&sector);
+            builder.add_floor(
+                floor,
+                &triangulation,
+                &sector.floor_texture,
+                if sector.flags.0 & 0x80 != 0 {
+                    0x1_0000
+                } else {
+                    0
+                },
+                sector.ambient,
+            );
+            builder.add_ceil(
+                ceil,
+                &triangulation,
+                &sector.ceiling_texture,
+                if sector.flags.0 & 1 != 0 { 0x1_0000 } else { 0 },
+                sector.ambient,
+            );
         }
 
         let mesh = builder.build(context);
@@ -155,10 +149,10 @@ impl LevelMeshBuilder {
         ]);
     }
 
-    fn add_level(
+    fn add_floor(
         &mut self,
         z: f32,
-        triangulation: &[mint::Point2<f32>],
+        triangulation: &[[mint::Point2<f32>; 3]],
         texture: &lev::Texture,
         texture_flags: u32,
         light: u32,
@@ -168,27 +162,47 @@ impl LevelMeshBuilder {
             Some(tex) => tex as u32,
         } | texture_flags;
 
-        for tri in triangulation.chunks_exact(3) {
-            fn vertex(
-                point: mint::Point2<f32>,
-                z: f32,
-                tex: u32,
-                offset: mint::Vector2<f32>,
-                light: u32,
-            ) -> Vertex {
-                Vertex {
-                    pos: cgmath::point3(point.x, point.y, -z),
-                    uv: (cgmath::point2(point.x, point.y) - cgmath::Vector2::from(offset)) / 8.0,
-                    tex,
-                    light,
-                }
-            }
-            self.inner.tri(&[
-                vertex(tri[0], z, tex, texture.offset, light),
-                vertex(tri[1], z, tex, texture.offset, light),
-                vertex(tri[2], z, tex, texture.offset, light),
-            ])
+        for tri in triangulation {
+            self.add_level_vertex(tri[0], z, tex, texture.offset, light);
+            self.add_level_vertex(tri[1], z, tex, texture.offset, light);
+            self.add_level_vertex(tri[2], z, tex, texture.offset, light);
         }
+    }
+
+    fn add_ceil(
+        &mut self,
+        z: f32,
+        triangulation: &[[mint::Point2<f32>; 3]],
+        texture: &lev::Texture,
+        texture_flags: u32,
+        light: u32,
+    ) {
+        let tex = match texture.index {
+            None => return,
+            Some(tex) => tex as u32,
+        } | texture_flags;
+
+        for tri in triangulation {
+            self.add_level_vertex(tri[0], z, tex, texture.offset, light);
+            self.add_level_vertex(tri[2], z, tex, texture.offset, light);
+            self.add_level_vertex(tri[1], z, tex, texture.offset, light);
+        }
+    }
+
+    fn add_level_vertex(
+        &mut self,
+        point: mint::Point2<f32>,
+        z: f32,
+        tex: u32,
+        offset: mint::Vector2<f32>,
+        light: u32,
+    ) {
+        self.inner.add(Vertex {
+            pos: cgmath::point3(point.x, point.y, -z),
+            uv: (cgmath::point2(point.x, point.y) - cgmath::Vector2::from(offset)) / 8.0,
+            tex,
+            light,
+        });
     }
 
     fn build(self, context: &Context) -> Mesh {

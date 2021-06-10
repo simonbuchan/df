@@ -2,68 +2,13 @@
 <module type="CPP_MODULE" version="4">
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
-      <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/ahash-495d7bb714fa5af2/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/backtrace-064012c565108785/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/bitflags-20c17e38a66f4ad4/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/crossbeam-utils-2f990d93de885cc0/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/df-bindings-9d372c52ae83a21f/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/getrandom-a828a4b6fb1f292b/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/glium-f1695399b719a594/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/glutin_egl_sys-15c04d752245cda7/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/glutin_wgl_sys-1e0ef272ee031da8/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/khronos_api-86948b91ceb08d2e/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/libc-07ab2ecd1521fd08/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/log-571455c984520088/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/memoffset-bf6d5fa4fc4db6b3/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/miniz_oxide-5474e203a1c0b3bd/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/num-traits-42fc1039b3687aed/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/proc-macro2-317340c942b8e05c/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/rayon-c43e5c420a9b24b3/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/rayon-core-8d5009a3923ea0a3/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/syn-bc855a24c682cbd9/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-adcf780baf531a8f/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/lexical-core-6a96817f3bbcdd4e/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/memchr-35ecbc45b0e10ab6/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/nom-46a9bcb51463e777/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/radium-234527326c65627d/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/ryu-d1a8c0ab36a4ecfa/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/bindings/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/explorer/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/formats/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/crates/level-viewer/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/backtrace-45f0c67cca4ccd66/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/crossbeam-epoch-ce6f19c2a3c98f7d/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/crossbeam-utils-1809d230db41fcf4/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/df-bindings-7a8f612da297308a/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/df-bindings-b937482d2d9eb33f/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/df-bindings-f4cb2dda157ccb10/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/indexmap-47bc85817c6897d2/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/libc-42869ab947fbd8a9/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/log-28d528a36f4b316d/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/num-integer-1ace77ba641b5391/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/num-traits-72a364a6209626dc/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/proc-macro2-a61e9acfd7601c47/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/serde-c1738a32907a2258/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/serde_json-2a0efdc3daef4211/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/spirv_cross-fc0c69924817f7e8/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/syn-7841042fbd8a1887/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/syn-8f0408ed2095b540/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/wgpu-core-cfe2cd5e3c8fdb16/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-125f5b68fcd39b62/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-79997cb8271d3d1c/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-a9b0b020a692e2e1/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-ccb08e781e8b62e2/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-f42efd2d59dadf20/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winit-f864abd4b389b815/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/cgmath-7b5338afb0b59523/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/df-level-viewer-915fc6e1979b65e1/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/crates/level-viewer/tests" isTestSource="true" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/df-level-viewer-e3e35de97da4d80a/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/crates/seidel-poly-triangulation/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/cgmath-5c420e5948ae9b75/out" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/getrandom-6eda46d14da4192d/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/level-geometry/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/level-viewer/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/seidel/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

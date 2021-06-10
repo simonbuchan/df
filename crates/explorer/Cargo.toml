@@ -11,3 +11,4 @@ formats = { package = "df-formats", path = "../formats" }
 level-geometry = { package = "df-level-geometry", path = "../level-geometry" }
 
 eframe = "0.12"
+registry = "1"

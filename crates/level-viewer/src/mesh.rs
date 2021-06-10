@@ -53,6 +53,12 @@ impl MeshBuilder {
         Self::default()
     }
 
+    pub fn add(&mut self, vertices: Vertex) {
+        let index = self.vertex_data.len() as u16;
+        self.vertex_data.push(vertices);
+        self.index_data.push(index);
+    }
+
     pub fn tri(&mut self, vertices: &[Vertex; 3]) {
         let index = self.vertex_data.len() as u16;
         self.vertex_data.extend_from_slice(vertices);

@@ -45,8 +45,8 @@ impl Camera {
                     view: self.matrix(target.aspect()),
                     viewport_size: target.size(),
                     sky: cgmath::Vector2::new(
-                        (self.fov * target.aspect()).0,
-                        self.dir.0 / std::f32::consts::TAU,
+                        self.fov.0,
+                        self.dir * 4.0 / <cgmath::Rad<f32> as cgmath::Angle>::full_turn(),
                     ),
                 },
             )

@@ -15,5 +15,5 @@ void main() {
     gl_Position = l.view * vec4(in_pos, 1);
     out_uv = in_uv;
     out_tex = in_tex;
-    out_light = clamp(float(in_light) / 30.0, 0, 1);
+    out_light = pow(clamp(float(in_light) / 30.0, 0, 1), 2.2);
 }

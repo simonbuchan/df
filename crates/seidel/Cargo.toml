@@ -1,14 +1,10 @@
 [package]
-name = "df-level-geometry"
+name = "seidel"
 version = "0.1.0"
 authors = ["Simon Buchan <simon.buchan@skilitics.com>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[dependencies]
-formats = { package = "df-formats", path = "../formats" }
-seidel = { path = "../seidel" }
-
-#triangulate = "0.1"
-mint = "0.5"
+[build-dependencies]
+cc = "1"

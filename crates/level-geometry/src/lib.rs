@@ -7,43 +7,39 @@ pub fn walls_to_polygons(walls: impl IntoIterator<Item = (usize, usize)>) -> Vec
     }
 
     impl Contour {
-        fn new(a: usize, b: usize) -> Self {
+        fn new(left: usize, right: usize) -> Self {
             let mut indices = std::collections::VecDeque::with_capacity(8);
-            indices.push_back(a);
-            indices.push_back(b);
+            indices.push_back(left);
+            indices.push_back(right);
             Self { indices }
         }
 
-        fn front(&self) -> usize {
+        fn left_end(&self) -> usize {
             *self.indices.front().unwrap()
         }
 
-        fn back(&self) -> usize {
+        fn right_end(&self) -> usize {
             *self.indices.back().unwrap()
         }
 
-        fn add(&mut self, a: usize, b: usize) -> Add {
-            let add = self.add_near(a, b);
-            match add {
-                Add::Unmatched => self.add_near(b, a),
-                add => return add,
-            }
-        }
-
-        fn add_near(&mut self, near: usize, far: usize) -> Add {
-            if near == self.back() {
-                if far == self.front() {
+        fn add(&mut self, left: usize, right: usize, dup: bool) -> Add {
+            if left == self.right_end() {
+                if right == self.left_end() {
                     Add::Closed
-                } else {
-                    self.indices.push_back(far);
+                } else if !dup {
+                    self.indices.push_back(right);
                     Add::Extended
+                } else {
+                    Add::Unmatched
                 }
-            } else if near == self.front() {
-                if far == self.back() {
+            } else if right == self.left_end() {
+                if left == self.right_end() {
                     Add::Closed
-                } else {
-                    self.indices.push_front(far);
+                } else if !dup {
+                    self.indices.push_front(left);
                     Add::Extended
+                } else {
+                    Add::Unmatched
                 }
             } else {
                 Add::Unmatched
@@ -59,10 +55,15 @@ pub fn walls_to_polygons(walls: impl IntoIterator<Item = (usize, usize)>) -> Vec
 
     let mut polygons: Vec<Vec<usize>> = Vec::new();
     let mut contours: Vec<Contour> = Vec::new();
+    let mut added = std::collections::BTreeSet::new();
 
-    'wall: for (a, b) in walls {
+    'wall: for (left, right) in walls {
+        // detect if this is a dup wall, and discard if so.
+        // still need the last wall to close an inner polygon though.
+        let dup = !added.insert(left) & !added.insert(right);
+
         for i in 0..contours.len() {
-            let add = contours[i].add(a, b);
+            let add = contours[i].add(left, right, dup);
             match add {
                 Add::Unmatched => {}
                 Add::Extended => continue 'wall,
@@ -76,7 +77,9 @@ pub fn walls_to_polygons(walls: impl IntoIterator<Item = (usize, usize)>) -> Vec
             }
         }
 
-        contours.push(Contour::new(a, b));
+        if !dup {
+            contours.push(Contour::new(left, right));
+        }
     }
 
     polygons.sort_unstable_by_key(|p| p[0]);
@@ -84,75 +87,40 @@ pub fn walls_to_polygons(walls: impl IntoIterator<Item = (usize, usize)>) -> Vec
     polygons
 }
 
-#[test]
-fn walls_to_polygons_test() {
-    assert_eq!(
-        walls_to_polygons(vec![(0, 1), (1, 2), (2, 0)]),
-        vec![vec![0, 1, 2]],
-    );
-    assert_eq!(
-        walls_to_polygons(vec![(0, 1), (1, 2), (2, 3), (3, 0)]),
-        vec![vec![0, 1, 2, 3]],
-    );
-    assert_eq!(
-        walls_to_polygons(vec![(0, 1), (1, 3), (2, 3), (2, 0)]),
-        vec![vec![0, 1, 3, 2]],
-    );
-    // denormalization
-    assert_eq!(
-        walls_to_polygons(vec![(1, 2), (0, 1), (2, 0)]),
-        vec![vec![0, 1, 2]],
-    );
-    assert_eq!(
-        walls_to_polygons(vec![(1, 2), (1, 0), (2, 0)]),
-        vec![vec![0, 1, 2]],
-    );
+pub fn triangulate_sector(sector: &lev::Sector) -> Vec<[mint::Point2<f32>; 3]> {
+    // reverse the polygon order by flipping the wall ends as Seidel requires it.
+    let polygons = walls_to_polygons(sector.walls.iter().map(|w| (w.right_vertex, w.left_vertex)));
 
-    assert_eq!(
-        walls_to_polygons(vec![(1, 2), (0, 1), (3, 4), (2, 0), (6, 4), (3, 6)]),
-        vec![vec![0, 1, 2], vec![3, 4, 6]],
-    );
-}
+    let contours = polygons.iter().map(|p| p.len() as i32).collect::<Vec<_>>();
+    let vertices = polygons
+        .iter()
+        .flatten()
+        .map(|&i| {
+            let vertex = sector.vertices[i];
+            seidel::Vertex {
+                x: vertex.x as f64,
+                y: vertex.y as f64,
+            }
+        })
+        .collect::<Vec<_>>();
 
-pub type TriangulationError = triangulate::TriangulationError<std::convert::Infallible>;
-
-pub fn triangulate_sector(
-    sector: &lev::Sector,
-) -> Result<Vec<mint::Point2<f32>>, TriangulationError> {
-    let polygons = walls_to_polygons(sector.walls.iter().map(|w| (w.left_vertex, w.right_vertex)));
-
-    #[derive(Copy, Clone, Debug)]
-    struct Vertex(mint::Vector2<f32>);
-
-    impl triangulate::Vertex for Vertex {
-        type Coordinate = f32;
-        fn x(&self) -> f32 {
-            self.0.x
-        }
-        fn y(&self) -> f32 {
-            self.0.y
+    let triangles = seidel::triangulate(&contours, &vertices);
+    fn v(vertex: seidel::Vertex) -> mint::Point2<f32> {
+        mint::Point2 {
+            x: vertex.x as f32,
+            y: vertex.y as f32,
         }
     }
-
-    use triangulate::{
-        builders::{FanToListAdapter, VecListBuilder},
-        IndexWithU16U16, Triangulate,
-    };
-
-    let polygons: Vec<Vec<Vertex>> = polygons
+    triangles
         .into_iter()
-        .map(|polygon| {
-            polygon
-                .into_iter()
-                .map(|index| Vertex(sector.vertices[index].into()))
-                .collect()
+        .map(|t| {
+            [
+                v(vertices[t.0[0] as usize - 1]),
+                v(vertices[t.0[1] as usize - 1]),
+                v(vertices[t.0[2] as usize - 1]),
+            ]
         })
-        .collect();
-
-    let polygon_list = IndexWithU16U16::new(&polygons);
-    let mut vertices = Vec::new();
-    polygon_list.triangulate::<FanToListAdapter<_, VecListBuilder<_>>>(&mut vertices)?;
-    Ok(vertices.into_iter().map(|vertex| vertex.0.into()).collect())
+        .collect()
 }
 //
 // fn validate_lev(lev: &lev::Lev) {

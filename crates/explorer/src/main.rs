@@ -84,12 +84,22 @@ impl GobPalette {
     }
 }
 
-// const BASE_PATH: &str = r"C:\Games\Steam\steamapps\common\Dark Forces\Game\";
-const BASE_PATH: &str = r"C:\Program Files (x86)\Steam\steamapps\common\Dark Forces\Game\";
-
 impl App {
     fn new() -> ReadResult<Self> {
-        let mut data_files = Self::files(BASE_PATH)?;
+        let steam_path = registry::Hive::CurrentUser
+            .open(r"Software\Valve\Steam", registry::Security::Read)
+            .expect("want a Steam installation")
+            .value("SteamPath")
+            .unwrap();
+        let steam_path = match steam_path {
+            registry::Data::String(steam_path) => steam_path.to_os_string(),
+            _ => panic!("unexpected type: {:?}", steam_path),
+        };
+
+        let game_path =
+            std::path::Path::new(&steam_path).join(r"steamapps\common\Dark Forces\Game");
+
+        let mut data_files = Self::files(game_path)?;
         let gob_palette = GobPalette::setup(&mut data_files);
         Ok(Self {
             data_files,
@@ -902,13 +912,30 @@ impl DecodedLev {
     }
 
     fn show_sector(&mut self, ui: &mut egui::Ui) {
+        fn tex_row(ui: &mut egui::Ui, name: &str, lev: &lev::Lev, texture: &lev::Texture) {
+            if let Some(tex) = texture.index {
+                ui.label(name);
+                ui.code(&lev.texture_names[tex]);
+                ui.code(format!("{}", texture.offset.x));
+                ui.code(format!("{}", texture.offset.y));
+                ui.end_row();
+            }
+        }
+
         ui.vertical_centered_justified(|ui| {
+            egui::Grid::new("level").show(ui, |ui| {
+                ui.label("parallax");
+                ui.code(format!("{}", self.lev.parallax.x));
+                ui.code(format!("{}", self.lev.parallax.y));
+                ui.end_row();
+            });
+
             ui.add(
                 egui::Slider::new(&mut self.sector_index, 0..=self.lev.sectors.len() - 1)
                     .text("sector"),
             );
             let sector = &self.lev.sectors[self.sector_index];
-            egui::Grid::new("head").show(ui, |ui| {
+            egui::Grid::new("sector").show(ui, |ui| {
                 ui.label("id");
                 ui.code(format!("{}", sector.id));
                 ui.end_row();
@@ -917,6 +944,8 @@ impl DecodedLev {
                     ui.code(name);
                     ui.end_row();
                 }
+                tex_row(ui, "ceiling", &self.lev, &sector.ceiling_texture);
+                tex_row(ui, "floor", &self.lev, &sector.floor_texture);
                 ui.label("ambient");
                 ui.code(format!("{}", sector.ambient));
                 ui.end_row();
@@ -951,20 +980,6 @@ impl DecodedLev {
                             ui.end_row();
                             ui.label("textures");
                             ui.end_row();
-                            fn tex_row(
-                                ui: &mut egui::Ui,
-                                name: &str,
-                                lev: &lev::Lev,
-                                texture: &lev::Texture,
-                            ) {
-                                if let Some(tex) = texture.index {
-                                    ui.label(name);
-                                    ui.code(&lev.texture_names[tex]);
-                                    ui.code(format!("{}", texture.offset.x));
-                                    ui.code(format!("{}", texture.offset.y));
-                                    ui.end_row();
-                                }
-                            }
                             tex_row(ui, "mid", &self.lev, &wall.middle_texture);
                             tex_row(ui, "top", &self.lev, &wall.top_texture);
                             tex_row(ui, "bot", &self.lev, &wall.bottom_texture);
